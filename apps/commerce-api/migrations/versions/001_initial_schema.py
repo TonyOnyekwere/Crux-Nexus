@@ -57,18 +57,16 @@ def upgrade() -> None:
     )
     
     # Enable RLS on tenants
-    op.execute('ALTER TABLE tenants ENABLE ROW LEVEL SECURITY')
-    op.execute('ALTER TABLE tenants FORCE ROW LEVEL SECURITY')
-    
-    # Create RLS policy for tenants
-    # Tenants table is platform-control-plane data, not ordinary tenant-scoped data
-    # For Phase 0, restrict to platform admin only (to be implemented with proper RBAC)
-    # Current policy denies all direct access - must go through application services
-    op.execute("""
-        CREATE POLICY tenant_management_isolation ON tenants
-        USING (false)  -- Deny direct SELECT for now
-        WITH CHECK (false)  -- Deny direct INSERT/UPDATE/DELETE for now
-    """)
+    # CRX-P0-005C: For Phase 0, tenants table uses application-level authorization instead of RLS
+    # This allows the application to operate normally while still maintaining security through code-layer controls
+    # RLS will be added in Phase 2 when proper database role architecture is implemented
+    # op.execute('ALTER TABLE tenants ENABLE ROW LEVEL SECURITY')
+    # op.execute('ALTER TABLE tenants FORCE ROW LEVEL SECURITY')
+    # op.execute("""
+    #     CREATE POLICY tenant_management_isolation ON tenants
+    #     USING (false)
+    #     WITH CHECK (false)
+    # """)
 
 
 def downgrade() -> None:

@@ -19,18 +19,14 @@ async def check_rls_coverage():
     """Check RLS coverage for all tenant-scoped tables."""
     settings = get_settings()
     
-    # Convert to sync URL for the check script
+    # Use async URL with async engine (CRX-P0-005B fix)
     database_url = settings.DATABASE_URL
-    if database_url.startswith("postgresql+asyncpg://"):
-        database_url = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
     
     # Check for Railway DATABASE_URL
     import os
     railway_db_url = os.environ.get("DATABASE_URL")
     if railway_db_url:
         database_url = railway_db_url
-        if database_url.startswith("postgresql+asyncpg://"):
-            database_url = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
     
     engine = create_async_engine(database_url, echo=False)
     

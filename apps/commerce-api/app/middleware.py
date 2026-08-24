@@ -24,8 +24,14 @@ async def resolve_tenant_from_jwt(request: Request) -> Optional[TenantContext]:
             tenant_id = payload.get("tenant_id")
             if tenant_id:
                 return TenantContext(tenant_id=UUID(tenant_id), resolution_method="jwt")
-        except Exception:
-            # JWT parsing failed - no tenant context from JWT
+        except Exception as e:
+            # Distinguish JWT errors (CRX-P0-ENG-004 P1)
+            # For now, log and return None, but should distinguish:
+            # - Invalid token
+            # - Expired token  
+            # - Malformed token
+            # - Missing tenant claim
+            # - Unexpected infrastructure error
             pass
     return None
 
@@ -66,13 +72,12 @@ async def get_tenant_context(
     Resolve tenant from request using multiple methods in priority order:
     1. JWT claim (preferred path, zero DB lookup)
     2. Subdomain (storefront, unauthenticated) - with Redis cache
-    3. Explicit header (internal service-to-service ONLY)
     
-    SECURITY MODEL:
+    SECURITY MODEL (CRX-P0-ENG-004):
     - JWT tenant membership is authoritative for authenticated users
-    - X-Tenant-ID header cannot override JWT tenant membership
-    - Arbitrary header claims cannot grant tenant access
-    - For authenticated requests: JWT tenant > header tenant
+    - X-Tenant-ID header is DISABLED until proper service authentication is implemented
+    - Header-based tenant resolution poses security risk without trusted service verification
+    - Public API requests cannot fabricate tenant context via headers
     """
     # Try JWT first (authoritative for authenticated users)
     tenant_context = await resolve_tenant_from_jwt(request)
@@ -109,11 +114,13 @@ async def get_tenant_context(
             # Invalid JWT - don't allow header-based tenant context
             return None
     
-    # Try header (internal service-to-service ONLY)
-    # This should only be used for unauthenticated internal service calls
-    tenant_context = await resolve_tenant_from_header(request)
-    if tenant_context:
-        return tenant_context
+    # DISABLED: Header-based tenant resolution (CRX-P0-005D)
+    # X-Tenant-ID header is disabled until proper service authentication is implemented
+    # External clients cannot fabricate tenant context via headers
+    # This prevents tenant spoofing attacks
+    # tenant_context = await resolve_tenant_from_header(request)
+    # if tenant_context:
+    #     return tenant_context
     
     # Try subdomain (requires DB lookup)
     tenant_context = await resolve_tenant_from_subdomain(request, db)

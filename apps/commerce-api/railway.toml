@@ -16,3 +16,6 @@ name = "commerce-api"
 
     [services.ports.proxy]
     protocol = "tcp"
+
+  [[services.env]]
+  ENVIRONMENT = "staging"

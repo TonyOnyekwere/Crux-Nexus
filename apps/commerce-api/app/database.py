@@ -28,10 +28,19 @@ Base = declarative_base()
 
 
 async def get_db(request: Request = None) -> AsyncSession:
-    """Get database session with tenant context set for RLS."""
+    """
+    Get database session with tenant context set for RLS.
+    
+    CRX-P0-005E: Tenant context management for Phase 0
+    - Uses SET LOCAL which is transaction-scoped
+    - Tenant context is set at session initialization
+    - For Phase 0, single-transaction-per-request is the expected pattern
+    - Future improvement: connection-level context or session events for multi-transaction requests
+    """
     async with AsyncSessionLocal() as session:
         try:
             # Set tenant context for RLS if available in request state
+            # SET LOCAL applies to the current transaction only
             if request and hasattr(request.state, 'current_tenant_id'):
                 await session.execute(
                     text("SET LOCAL app.current_tenant_id = :tid"),

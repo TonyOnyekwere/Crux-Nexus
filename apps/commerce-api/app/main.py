@@ -34,6 +34,10 @@ async def tenant_middleware(request: Request, call_next):
     Middleware to handle tenant context resolution using proper security functions.
     
     Uses app.middleware.get_tenant_context for all tenant resolution logic (CRX-P0-003D, CRX-P0-003E).
+    
+    CRX-P0-005D: No header-based tenant fallback for public API requests.
+    Public requests cannot fabricate tenant context via X-Tenant-ID header.
+    Only JWT claims and subdomain resolution are active for Phase 0.
     """
     from app.database import get_db
     from app.middleware import get_tenant_context
