@@ -21,6 +21,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_origin_regex=r"https://.*\.cruxnexus\.com"
 )
 
 # Include routers
@@ -33,11 +34,12 @@ async def tenant_middleware(request: Request, call_next):
     """
     Middleware to handle tenant context resolution using proper security functions.
     
-    Uses app.middleware.get_tenant_context for all tenant resolution logic (CRX-P0-003D, CRX-P0-003E).
+    Uses app.middleware.get_tenant_context for all tenant resolution logic (CRX-P0-006).
     
-    CRX-P0-005D: No header-based tenant fallback for public API requests.
-    Public requests cannot fabricate tenant context via X-Tenant-ID header.
-    Only JWT claims and subdomain resolution are active for Phase 0.
+    SECURITY MODEL (CRX-P0-006):
+    - Only JWT claims and subdomain resolution establish tenant context
+    - Header-based tenant resolution is completely disabled
+    - No X-Tenant-ID header processing for public API requests
     """
     from app.database import get_db
     from app.middleware import get_tenant_context

@@ -10,7 +10,7 @@ class TenantContext:
     """Tenant context containing tenant ID and resolution method."""
     def __init__(self, tenant_id: UUID, resolution_method: str):
         self.tenant_id = tenant_id
-        self.resolution_method = resolution_method  # 'jwt', 'subdomain', 'header', 'service'
+        self.resolution_method = resolution_method  # 'jwt', 'subdomain'
 
 
 async def resolve_tenant_from_jwt(request: Request) -> Optional[TenantContext]:
@@ -32,17 +32,6 @@ async def resolve_tenant_from_jwt(request: Request) -> Optional[TenantContext]:
             # - Malformed token
             # - Missing tenant claim
             # - Unexpected infrastructure error
-            pass
-    return None
-
-
-async def resolve_tenant_from_header(request: Request) -> Optional[TenantContext]:
-    """Resolve tenant from explicit header (internal service-to-service)."""
-    tenant_header = request.headers.get("X-Tenant-ID")
-    if tenant_header:
-        try:
-            return TenantContext(tenant_id=UUID(tenant_header), resolution_method="header")
-        except ValueError:
             pass
     return None
 
@@ -69,58 +58,20 @@ async def get_tenant_context(
     db: AsyncSession = Depends(get_db)
 ) -> Optional[TenantContext]:
     """
-    Resolve tenant from request using multiple methods in priority order:
+    Resolve tenant from request using authorized methods only:
     1. JWT claim (preferred path, zero DB lookup)
     2. Subdomain (storefront, unauthenticated) - with Redis cache
     
-    SECURITY MODEL (CRX-P0-ENG-004):
-    - JWT tenant membership is authoritative for authenticated users
-    - X-Tenant-ID header is DISABLED until proper service authentication is implemented
-    - Header-based tenant resolution poses security risk without trusted service verification
-    - Public API requests cannot fabricate tenant context via headers
+    SECURITY MODEL (CRX-P0-006):
+    - Only JWT claims and subdomain resolution establish tenant context
+    - Header-based tenant resolution is completely disabled
+    - No X-Tenant-ID header processing for public API requests
+    - Service-to-service tenant propagation requires mTLS or signed service identity (future)
     """
     # Try JWT first (authoritative for authenticated users)
     tenant_context = await resolve_tenant_from_jwt(request)
     if tenant_context:
-        # JWT established tenant context - this is authoritative
-        # If X-Tenant-ID header exists and differs, reject as potential spoofing
-        tenant_header = request.headers.get("X-Tenant-ID")
-        if tenant_header:
-            try:
-                header_tenant_id = UUID(tenant_header)
-                if header_tenant_id != tenant_context.tenant_id:
-                    # Attempted tenant context override - security risk
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="Tenant context mismatch: JWT and header tenant IDs differ"
-                    )
-            except ValueError:
-                # Invalid UUID in header - ignore but don't allow override
-                pass
         return tenant_context
-    
-    # If JWT exists but has no tenant_id, don't allow header override
-    authorization = request.headers.get("Authorization")
-    if authorization and authorization.startswith("Bearer "):
-        try:
-            from app.auth.jwt_handler import decode_access_token
-            token = authorization.split(" ")[1]
-            payload = decode_access_token(token)
-            if "tenant_id" in payload and not payload.get("tenant_id"):
-                # JWT says user exists but has no tenant assignment
-                # Don't allow header to fabricate tenant context
-                return None
-        except Exception:
-            # Invalid JWT - don't allow header-based tenant context
-            return None
-    
-    # DISABLED: Header-based tenant resolution (CRX-P0-005D)
-    # X-Tenant-ID header is disabled until proper service authentication is implemented
-    # External clients cannot fabricate tenant context via headers
-    # This prevents tenant spoofing attacks
-    # tenant_context = await resolve_tenant_from_header(request)
-    # if tenant_context:
-    #     return tenant_context
     
     # Try subdomain (requires DB lookup)
     tenant_context = await resolve_tenant_from_subdomain(request, db)

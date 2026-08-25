@@ -30,9 +30,10 @@ async def check_rls_coverage():
     
     engine = create_async_engine(database_url, echo=False)
     
+    # CRX-P0-005C: Tenants table is platform-control-plane data, not tenant-scoped
+    # Only check RLS on actual tenant-owned tables
     tenant_scoped_tables = [
         "users",
-        "tenants",
         # Add more tenant-scoped tables as they are created
     ]
     

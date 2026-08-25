@@ -13,7 +13,13 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_ALGORITHM: str = "HS256"
-    CORS_ORIGINS: list[str] = ["https://*.cruxnexus.com", "http://localhost:3000"]
+    CORS_ORIGINS: list[str] = [
+        "https://cruxnexus.com",
+        "https://www.cruxnexus.com",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ]
+    CORS_ORIGIN_REGEX: str | None = r"https://.*\.vercel\.app"
     PLATFORM_DEFAULT_PAYMENT_PROVIDER: str = "paystack"
     PLATFORM_DEFAULT_LOGISTICS_PROVIDER: str = "fallback"
     PLATFORM_DEFAULT_NOTIFICATION_PROVIDER: str = "sendgrid"

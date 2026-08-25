@@ -56,17 +56,19 @@ def upgrade() -> None:
         sa.UniqueConstraint('slug'),
     )
     
-    # Enable RLS on tenants
-    # CRX-P0-005C: For Phase 0, tenants table uses application-level authorization instead of RLS
-    # This allows the application to operate normally while still maintaining security through code-layer controls
-    # RLS will be added in Phase 2 when proper database role architecture is implemented
-    # op.execute('ALTER TABLE tenants ENABLE ROW LEVEL SECURITY')
-    # op.execute('ALTER TABLE tenants FORCE ROW LEVEL SECURITY')
-    # op.execute("""
-    #     CREATE POLICY tenant_management_isolation ON tenants
-    #     USING (false)
-    #     WITH CHECK (false)
-    # """)
+    # Tenants table architecture for Phase 0 (CRX-P0-006)
+    # Current state: Application-layer authorization only
+    # - No RLS on tenants table for Phase 0
+    # - Application services use standard DB session for tenant operations
+    # - Authorization enforced at API route level (not database level)
+    # 
+    # Future state (Phase 2): Platform-admin DB role architecture
+    # - Separate platform-admin database role
+    # - RLS with elevated privileges for platform operations
+    # - Clear control-plane/data-plane boundary at database level
+    #
+    # This Phase 0 approach allows immediate Railway deployment while
+    # acknowledging the architectural boundary that will be formalized in Phase 2.
 
 
 def downgrade() -> None:
