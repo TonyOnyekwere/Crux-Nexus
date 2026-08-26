@@ -46,7 +46,7 @@ async def tenant_middleware(request: Request, call_next):
     
     try:
         # Get database session for tenant resolution
-        async for db in get_db(request):
+        async for db in get_db():
             tenant_context = await get_tenant_context(request, db)
             request.state.tenant_context = tenant_context
             
