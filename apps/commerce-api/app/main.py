@@ -44,22 +44,30 @@ async def tenant_middleware(request: Request, call_next):
     from app.database import get_db
     from app.middleware import get_tenant_context
     
+    from sqlalchemy.exc import ProgrammingError
+
     try:
         # Get database session for tenant resolution
         async for db in get_db():
-            tenant_context = await get_tenant_context(request, db)
+            try:
+                tenant_context = await get_tenant_context(request, db)
+            except ProgrammingError:
+                # Database schema may not be ready (missing tenants table).
+                # Treat as no tenant rather than failing the whole request.
+                tenant_context = None
+
             request.state.tenant_context = tenant_context
-            
+
             if tenant_context:
                 request.state.current_tenant_id = str(tenant_context.tenant_id)
-            
+
             response = await call_next(request)
             return response
-    except HTTPException as e:
+    except HTTPException:
         # Let HTTPException bubble up for proper error responses
-        raise e
-    except Exception as e:
-        # Other exceptions should result in 500 for observability
+        raise
+    except Exception:
+        # Other unexpected exceptions should result in 500 for observability
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error during tenant resolution"
