@@ -38,8 +38,8 @@ def upgrade() -> None:
     # Create RLS policy for users with WITH CHECK for write operations
     op.execute("""
         CREATE POLICY tenant_isolation ON users
-        USING (tenant_id = current_setting('app.current_tenant_id', nullable=true)::uuid)
-        WITH CHECK (tenant_id = current_setting('app.current_tenant_id', nullable=true)::uuid)
+        USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid)
+        WITH CHECK (tenant_id = current_setting('app.current_tenant_id', true)::uuid)
     """)
     
     # Create index on users.tenant_id for performance
