@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy import text
 from httpx import AsyncClient
 from uuid import uuid4
+from app.auth.jwt_handler import create_access_token
 
 
 class TestTenantIsolation:
@@ -9,7 +10,7 @@ class TestTenantIsolation:
     
     @pytest.mark.asyncio
     async def test_users_tenant_isolation(self, client: AsyncClient, db_session):
-        """Test that users from one tenant cannot access users from another tenant."""
+        """Test that users from one tenant cannot access users from another tenant via JWT authentication."""
         # Create two tenants
         tenant1_id = uuid4()
         tenant2_id = uuid4()
@@ -37,8 +38,10 @@ class TestTenantIsolation:
         assert user2_response.status_code == 201
         user2_data = user2_response.json()
         
-        # Set tenant context to tenant1
-        client.headers.update({"X-Tenant-ID": str(tenant1_id)})
+        # CRX-P0-007 P0-4: Use JWT authentication instead of X-Tenant-ID header
+        # Create JWT token for tenant1 user
+        token = create_access_token({"sub": str(user1_data['id']), "tenant_id": str(tenant1_id)})
+        client.headers.update({"Authorization": f"Bearer {token}"})
         
         # Try to access user2 (should fail with 404 or 403)
         response = await client.get(f"/api/v1/identity/users/{user2_data['id']}")
@@ -48,6 +51,7 @@ class TestTenantIsolation:
     @pytest.mark.asyncio
     async def test_rls_policy_enforcement(self, db_session):
         """Test that RLS policies are actually enforced at the database level."""
+        # CRX-P0-007 P0-3: Use set_config with transaction scope, not SET LOCAL
         # Create two tenants
         tenant1_id = uuid4()
         tenant2_id = uuid4()
@@ -72,21 +76,22 @@ class TestTenantIsolation:
         
         await db_session.commit()
         
-        # Set tenant context to tenant1
-        await db_session.execute(
-            text("SET LOCAL app.current_tenant_id = :tid"),
-            {"tid": str(tenant1_id)}
-        )
-        
-        # Try to query user2 while in tenant1 context
-        result = await db_session.execute(
-            text("SELECT * FROM users WHERE id = :id"),
-            {"id": str(user2_id)}
-        )
-        
-        # Should return no rows due to RLS
-        user_row = result.fetchone()
-        assert user_row is None, "RLS policy failed - tenant can access other tenant's data"
+        # CRX-P0-007 P0-3: Use explicit transaction with set_config
+        async with db_session.begin():
+            await db_session.execute(
+                text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+                {"tid": str(tenant1_id)}
+            )
+            
+            # Try to query user2 while in tenant1 context
+            result = await db_session.execute(
+                text("SELECT * FROM users WHERE id = :id"),
+                {"id": str(user2_id)}
+            )
+            
+            # Should return no rows due to RLS
+            user_row = result.fetchone()
+            assert user_row is None, "RLS policy failed - tenant can access other tenant's data"
     
     @pytest.mark.asyncio
     async def test_rls_select_isolation(self, db_session):
@@ -110,18 +115,19 @@ class TestTenantIsolation:
         
         await db_session.commit()
         
-        # Set tenant context to tenant1
-        await db_session.execute(
-            text("SET LOCAL app.current_tenant_id = :tid"),
-            {"tid": str(tenant1_id)}
-        )
-        
-        # Try to SELECT all users - should only see tenant1's users
-        result = await db_session.execute(text("SELECT id FROM users"))
-        user_ids = [row[0] for row in result.fetchall()]
-        
-        assert user2_id not in user_ids, "RLS SELECT failed - can see other tenant's data"
-        assert user1_id in user_ids, "RLS SELECT failed - cannot see own tenant's data"
+        # CRX-P0-007 P0-3: Use explicit transaction with set_config
+        async with db_session.begin():
+            await db_session.execute(
+                text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+                {"tid": str(tenant1_id)}
+            )
+            
+            # Try to SELECT all users - should only see tenant1's users
+            result = await db_session.execute(text("SELECT id FROM users"))
+            user_ids = [row[0] for row in result.fetchall()]
+            
+            assert user2_id not in user_ids, "RLS SELECT failed - can see other tenant's data"
+            assert user1_id in user_ids, "RLS SELECT failed - cannot see own tenant's data"
     
     @pytest.mark.asyncio
     async def test_rls_insert_isolation(self, db_session):
@@ -129,35 +135,34 @@ class TestTenantIsolation:
         tenant1_id = uuid4()
         tenant2_id = uuid4()
         
-        # Set tenant context to tenant1
-        await db_session.execute(
-            text("SET LOCAL app.current_tenant_id = :tid"),
-            {"tid": str(tenant1_id)}
-        )
-        
-        # Try to INSERT a user with tenant2_id - should fail
-        user_id = uuid4()
-        insert_result = await db_session.execute(
-            text("""
-                INSERT INTO users (id, email, password_hash, auth_provider, status, tenant_id)
-                VALUES (:id, :email, 'hash', 'password', 'active', :tenant)
-                RETURNING id
-            """),
-            {"id": user_id, "email": "malicious@tenant1.com", "tenant": str(tenant2_id)}
-        )
-        
-        # Should not return inserted ID due to RLS
-        inserted_id = insert_result.scalar()
-        assert inserted_id is None, "RLS INSERT failed - can insert with different tenant_id"
-        
-        # Verify no row was actually inserted
-        verification_result = await db_session.execute(
-            text("SELECT id FROM users WHERE id = :id"),
-            {"id": str(user_id)}
-        )
-        assert verification_result.fetchone() is None, "Row was actually inserted despite RLS"
-        
-        await db_session.rollback()
+        # CRX-P0-007 P0-3: Use explicit transaction with set_config
+        async with db_session.begin():
+            await db_session.execute(
+                text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+                {"tid": str(tenant1_id)}
+            )
+            
+            # Try to INSERT a user with tenant2_id - should fail
+            user_id = uuid4()
+            insert_result = await db_session.execute(
+                text("""
+                    INSERT INTO users (id, email, password_hash, auth_provider, status, tenant_id)
+                    VALUES (:id, :email, 'hash', 'password', 'active', :tenant)
+                    RETURNING id
+                """),
+                {"id": user_id, "email": "malicious@tenant1.com", "tenant": str(tenant2_id)}
+            )
+            
+            # Should not return inserted ID due to RLS
+            inserted_id = insert_result.scalar()
+            assert inserted_id is None, "RLS INSERT failed - can insert with different tenant_id"
+            
+            # Verify no row was actually inserted
+            verification_result = await db_session.execute(
+                text("SELECT id FROM users WHERE id = :id"),
+                {"id": str(user_id)}
+            )
+            assert verification_result.fetchone() is None, "Row was actually inserted despite RLS"
     
     @pytest.mark.asyncio
     async def test_rls_update_isolation(self, db_session):
@@ -177,31 +182,30 @@ class TestTenantIsolation:
         )
         await db_session.commit()
         
-        # Set tenant context to tenant1
-        await db_session.execute(
-            text("SET LOCAL app.current_tenant_id = :tid"),
-            {"tid": str(tenant1_id)}
-        )
-        
-        # Try to UPDATE tenant2's user
-        update_result = await db_session.execute(
-            text("UPDATE users SET email = :email WHERE id = :id RETURNING email"),
-            {"email": "hacked@tenant1.com", "id": str(user2_id)}
-        )
-        
-        # Should not update any rows due to RLS
-        updated_email = update_result.scalar()
-        assert updated_email is None, "RLS UPDATE failed - can update other tenant's data"
-        
-        # Verify email is unchanged
-        verification_result = await db_session.execute(
-            text("SELECT email FROM users WHERE id = :id"),
-            {"id": str(user2_id)}
-        )
-        current_email = verification_result.scalar()
-        assert current_email == original_email, "Email was changed despite RLS"
-        
-        await db_session.rollback()
+        # CRX-P0-007 P0-3: Use explicit transaction with set_config
+        async with db_session.begin():
+            await db_session.execute(
+                text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+                {"tid": str(tenant1_id)}
+            )
+            
+            # Try to UPDATE tenant2's user
+            update_result = await db_session.execute(
+                text("UPDATE users SET email = :email WHERE id = :id RETURNING email"),
+                {"email": "hacked@tenant1.com", "id": str(user2_id)}
+            )
+            
+            # Should not update any rows due to RLS
+            updated_email = update_result.scalar()
+            assert updated_email is None, "RLS UPDATE failed - can update other tenant's data"
+            
+            # Verify email is unchanged
+            verification_result = await db_session.execute(
+                text("SELECT email FROM users WHERE id = :id"),
+                {"id": str(user2_id)}
+            )
+            current_email = verification_result.scalar()
+            assert current_email == original_email, "Email was changed despite RLS"
     
     @pytest.mark.asyncio
     async def test_rls_delete_isolation(self, db_session):
@@ -220,30 +224,29 @@ class TestTenantIsolation:
         )
         await db_session.commit()
         
-        # Set tenant context to tenant1
-        await db_session.execute(
-            text("SET LOCAL app.current_tenant_id = :tid"),
-            {"tid": str(tenant1_id)}
-        )
-        
-        # Try to DELETE tenant2's user
-        delete_result = await db_session.execute(
-            text("DELETE FROM users WHERE id = :id RETURNING id"),
-            {"id": str(user2_id)}
-        )
-        
-        # Should not delete any rows due to RLS
-        deleted_id = delete_result.scalar()
-        assert deleted_id is None, "RLS DELETE failed - can delete other tenant's data"
-        
-        # Verify user still exists
-        verification_result = await db_session.execute(
-            text("SELECT id FROM users WHERE id = :id"),
-            {"id": str(user2_id)}
-        )
-        assert verification_result.fetchone() is not None, "User was deleted despite RLS"
-        
-        await db_session.rollback()
+        # CRX-P0-007 P0-3: Use explicit transaction with set_config
+        async with db_session.begin():
+            await db_session.execute(
+                text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+                {"tid": str(tenant1_id)}
+            )
+            
+            # Try to DELETE tenant2's user
+            delete_result = await db_session.execute(
+                text("DELETE FROM users WHERE id = :id RETURNING id"),
+                {"id": str(user2_id)}
+            )
+            
+            # Should not delete any rows due to RLS
+            deleted_id = delete_result.scalar()
+            assert deleted_id is None, "RLS DELETE failed - can delete other tenant's data"
+            
+            # Verify user still exists
+            verification_result = await db_session.execute(
+                text("SELECT id FROM users WHERE id = :id"),
+                {"id": str(user2_id)}
+            )
+            assert verification_result.fetchone() is not None, "User was deleted despite RLS"
     
     @pytest.mark.asyncio
     async def test_missing_tenant_context_deny(self, db_session):
@@ -267,7 +270,7 @@ class TestTenantIsolation:
     
     @pytest.mark.asyncio
     async def test_tenant_context_setting(self, client: AsyncClient):
-        """Test that tenant context is properly set in database sessions."""
+        """Test that tenant context is properly set in database sessions via JWT authentication."""
         tenant_id = uuid4()
         
         # Create a user with tenant
@@ -281,11 +284,12 @@ class TestTenantIsolation:
         )
         assert response.status_code == 201
         
-        # Set tenant header
-        client.headers.update({"X-Tenant-ID": str(tenant_id)})
+        # CRX-P0-007 P0-4: Use JWT authentication instead of X-Tenant-ID header
+        user_data = response.json()
+        token = create_access_token({"sub": str(user_data['id']), "tenant_id": str(tenant_id)})
+        client.headers.update({"Authorization": f"Bearer {token}"})
         
         # Try to access the user - should work
-        user_data = response.json()
         response = await client.get(f"/api/v1/identity/users/{user_data['id']}")
         assert response.status_code == 200
     

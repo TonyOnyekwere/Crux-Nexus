@@ -10,38 +10,35 @@ This script checks that all tenant-scoped tables have:
 
 import asyncio
 import sys
+import os
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from app.config import get_settings
+from app.database.tenant_scope import TENANT_SCOPED_TABLES
+from app.database.url import normalize_async_database_url
 
 
 async def check_rls_coverage():
     """Check RLS coverage for all tenant-scoped tables."""
-    settings = get_settings()
+    # CRX-P0-008 P0-6: Use CI environment variables directly
+    # CI provides explicit env vars for ephemeral infrastructure
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        print("❌ ERROR: DATABASE_URL environment variable not set")
+        sys.exit(1)
     
-    # Use async URL with async engine (CRX-P0-005B fix)
-    database_url = settings.DATABASE_URL
-    
-    # Check for Railway DATABASE_URL
-    import os
-    railway_db_url = os.environ.get("DATABASE_URL")
-    if railway_db_url:
-        database_url = railway_db_url
+    # Centralized Railway database URL normalization (CRX-P0-007 P0-2)
+    database_url = normalize_async_database_url(database_url)
     
     engine = create_async_engine(database_url, echo=False)
     
-    # CRX-P0-005C: Tenants table is platform-control-plane data, not tenant-scoped
-    # Only check RLS on actual tenant-owned tables
-    tenant_scoped_tables = [
-        "users",
-        # Add more tenant-scoped tables as they are created
-    ]
+    # Use canonical registry from tenant_scope.py (CRX-P0-007 P0-1)
+    # This ensures CI enforces the same table list as the architecture
     
     failed_tables = []
     partial_failures = []
     
     async with engine.begin() as conn:
-        for table in tenant_scoped_tables:
+        for table_name in TENANT_SCOPED_TABLES:
             # Check if table exists
             result = await conn.execute(
                 text("""
@@ -50,13 +47,13 @@ async def check_rls_coverage():
                         WHERE table_name = :table_name
                     )
                 """),
-                {"table_name": table}
+                {"table_name": table_name}
             )
             table_exists = result.scalar()
             
             if not table_exists:
-                print(f"❌ FAIL: Required table '{table}' does not exist")
-                failed_tables.append((table, ["Required table missing"]))
+                print(f"❌ FAIL: Required table '{table_name}' does not exist")
+                failed_tables.append((table_name, ["Required table missing"]))
                 continue
             
             table_issues = []
@@ -68,7 +65,7 @@ async def check_rls_coverage():
                     FROM pg_class 
                     WHERE relname = :table_name
                 """),
-                {"table_name": table}
+                {"table_name": table_name}
             )
             rls_enabled = result.scalar()
             
@@ -82,7 +79,7 @@ async def check_rls_coverage():
                     FROM pg_class 
                     WHERE relname = :table_name
                 """),
-                {"table_name": table}
+                {"table_name": table_name}
             )
             rls_forced = result.scalar()
             
@@ -98,7 +95,7 @@ async def check_rls_coverage():
                         AND policyname LIKE '%tenant%'
                     )
                 """),
-                {"table_name": table}
+                {"table_name": table_name}
             )
             policy_exists = result.scalar()
             
@@ -114,7 +111,7 @@ async def check_rls_coverage():
                         WHERE tablename = :table_name
                         AND policyname LIKE '%tenant%'
                     """),
-                    {"table_name": table}
+                    {"table_name": table_name}
                 )
                 policy_data = result.fetchone()
                 
@@ -125,13 +122,13 @@ async def check_rls_coverage():
             
             if table_issues:
                 if "RLS not enabled" in table_issues or "FORCE ROW LEVEL SECURITY not enabled" in table_issues:
-                    failed_tables.append((table, table_issues))
-                    print(f"❌ FAIL: Table '{table}' - {', '.join(table_issues)}")
+                    failed_tables.append((table_name, table_issues))
+                    print(f"❌ FAIL: Table '{table_name}' - {', '.join(table_issues)}")
                 else:
-                    partial_failures.append((table, table_issues))
-                    print(f"⚠️  PARTIAL: Table '{table}' - {', '.join(table_issues)}")
+                    partial_failures.append((table_name, table_issues))
+                    print(f"⚠️  PARTIAL: Table '{table_name}' - {', '.join(table_issues)}")
             else:
-                print(f"✅ PASS: Table '{table}' has complete RLS protection")
+                print(f"✅ PASS: Table '{table_name}' has complete RLS protection")
     
     await engine.dispose()
     

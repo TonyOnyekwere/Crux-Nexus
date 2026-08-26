@@ -9,7 +9,9 @@ class TenantService:
         self.db = db
 
     async def create_tenant(self, slug: str) -> Tenant:
-        """Create a new tenant."""
+        """Create a new tenant (platform control-plane operation)."""
+        # CRX-P0-007 P0-3: Tenants table is control-plane data, not tenant-scoped
+        # Uses normal transaction handling, not tenant_transaction
         # Check if slug already exists
         result = await self.db.execute(
             select(Tenant).where(Tenant.slug == slug)
@@ -48,7 +50,9 @@ class TenantService:
     async def update_tenant_status(
         self, tenant_id: uuid.UUID, new_status: TenantStatus
     ) -> Tenant:
-        """Update tenant status."""
+        """Update tenant status (platform control-plane operation)."""
+        # CRX-P0-007 P0-3: Tenants table is control-plane data, not tenant-scoped
+        # Uses normal transaction handling, not tenant_transaction
         tenant = await self.get_tenant_by_id(tenant_id)
         if not tenant:
             raise ValueError("Tenant not found")

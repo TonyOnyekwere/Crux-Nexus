@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from passlib.context import CryptContext
 from app.contexts.identity.domain.entities import User, UserStatus, AuthProvider
+from app.database.tenant_transaction import tenant_transaction
 import uuid
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -41,9 +42,17 @@ class IdentityService:
             tenant_id=tenant_id,
         )
         
-        self.db.add(user)
-        await self.db.commit()
-        await self.db.refresh(user)
+        # CRX-P0-007 P0-3: Use tenant_transaction for tenant-scoped operations
+        if tenant_id:
+            async with tenant_transaction(self.db, tenant_id) as session:
+                session.add(user)
+                await session.flush()
+                await session.refresh(user)
+        else:
+            # Platform-level user (no tenant context)
+            self.db.add(user)
+            await self.db.commit()
+            await self.db.refresh(user)
         
         return user
 
