@@ -1,12 +1,16 @@
 #!/bin/sh
 set -e
 
-# Run migrations if DATABASE_URL is set
+# Run migrations if DATABASE_URL is set; don't abort container on failure
 if [ -z "$DATABASE_URL" ]; then
   echo "DATABASE_URL not set; skipping migrations"
 else
   echo "Running alembic migrations"
-  alembic -c alembic.ini upgrade head
+  if alembic -c alembic.ini upgrade head; then
+    echo "Alembic migrations applied successfully"
+  else
+    echo "Alembic migrations failed; continuing startup (check logs)"
+  fi
 fi
 
 # Exec the app (preserves signals)
