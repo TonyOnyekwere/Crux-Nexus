@@ -26,7 +26,6 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: test
           POSTGRES_DB: commerce_db_test
         ports:
@@ -45,12 +44,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
-    env:
-      ENVIRONMENT: test
-      DATABASE_URL: postgresql://postgres:test@localhost:5432/commerce_db_test
-      REDIS_URL: redis://localhost:6379/0
-      SECRET_KEY: ci-test-secret
-      JWT_SECRET_KEY: ci-test-jwt-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -59,6 +52,12 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pip install pytest pytest-asyncio pytest-cov httpx
       - name: Run tests
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.CI_REDIS_URL }}
+          SECRET_KEY: ${{ secrets.CI_SECRET_KEY }}
+          JWT_SECRET_KEY: ${{ secrets.CI_JWT_SECRET_KEY }}
+          ENVIRONMENT: test
         run: pytest tests/ -v --cov=app --cov-report=xml
       - name: Upload coverage
         uses: codecov/codecov-action@v3
@@ -72,7 +71,6 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: test
           POSTGRES_DB: commerce_db_test
         ports:
@@ -91,12 +89,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
-    env:
-      ENVIRONMENT: test
-      DATABASE_URL: postgresql://postgres:test@localhost:5432/commerce_db_test
-      REDIS_URL: redis://localhost:6379/0
-      SECRET_KEY: ci-test-secret
-      JWT_SECRET_KEY: ci-test-jwt-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -105,8 +97,20 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pip install pytest pytest-asyncio pytest-cov httpx
       - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.CI_REDIS_URL }}
+          SECRET_KEY: ${{ secrets.CI_SECRET_KEY }}
+          JWT_SECRET_KEY: ${{ secrets.CI_JWT_SECRET_KEY }}
+          ENVIRONMENT: test
         run: alembic upgrade head
       - name: Run tenant isolation tests
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.CI_REDIS_URL }}
+          SECRET_KEY: ${{ secrets.CI_SECRET_KEY }}
+          JWT_SECRET_KEY: ${{ secrets.CI_JWT_SECRET_KEY }}
+          ENVIRONMENT: test
         run: pytest tests/integration/test_tenant_isolation.py -v
 
   rls-policy-check:
@@ -116,7 +120,6 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: test
           POSTGRES_DB: commerce_db_test
         ports:
@@ -135,12 +138,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
-    env:
-      ENVIRONMENT: test
-      DATABASE_URL: postgresql://postgres:test@localhost:5432/commerce_db_test
-      REDIS_URL: redis://localhost:6379/0
-      SECRET_KEY: ci-test-secret
-      JWT_SECRET_KEY: ci-test-jwt-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -148,8 +145,20 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.CI_REDIS_URL }}
+          SECRET_KEY: ${{ secrets.CI_SECRET_KEY }}
+          JWT_SECRET_KEY: ${{ secrets.CI_JWT_SECRET_KEY }}
+          ENVIRONMENT: test
         run: alembic upgrade head
       - name: Check RLS coverage
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.CI_REDIS_URL }}
+          SECRET_KEY: ${{ secrets.CI_SECRET_KEY }}
+          JWT_SECRET_KEY: ${{ secrets.CI_JWT_SECRET_KEY }}
+          ENVIRONMENT: test
         run: python scripts/check_rls_coverage.py
 
   security-scan:
