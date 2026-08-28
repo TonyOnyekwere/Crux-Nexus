@@ -8,6 +8,7 @@ from uuid import UUID
 
 settings = get_settings()
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -61,6 +62,20 @@ async def get_current_tenant_id(
     token = credentials.credentials
     payload = decode_access_token(token)
     
+    tenant_id: Optional[str] = payload.get("tenant_id")
+    if tenant_id:
+        return UUID(tenant_id)
+    return None
+
+
+async def get_optional_current_tenant_id(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+) -> Optional[UUID]:
+    """Extract a tenant claim when a valid bearer token is provided."""
+    if credentials is None:
+        return None
+
+    payload = decode_access_token(credentials.credentials)
     tenant_id: Optional[str] = payload.get("tenant_id")
     if tenant_id:
         return UUID(tenant_id)

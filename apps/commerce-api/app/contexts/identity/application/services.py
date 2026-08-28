@@ -20,15 +20,6 @@ class IdentityService:
         tenant_id: uuid.UUID | None = None,
     ) -> User:
         """Create a new user account."""
-        # Check if email already exists
-        result = await self.db.execute(
-            select(User).where(User.email == email)
-        )
-        existing_user = result.scalar_one_or_none()
-        
-        if existing_user:
-            raise ValueError("Email already registered")
-        
         password_hash = None
         if password and auth_provider == AuthProvider.PASSWORD:
             password_hash = pwd_context.hash(password)
@@ -42,14 +33,29 @@ class IdentityService:
             tenant_id=tenant_id,
         )
         
-        # CRX-P0-007 P0-3: Use tenant_transaction for tenant-scoped operations
         if tenant_id:
             async with tenant_transaction(self.db, tenant_id) as session:
+                result = await session.execute(
+                    select(User).where(User.email == email)
+                )
+                existing_user = result.scalar_one_or_none()
+
+                if existing_user:
+                    raise ValueError("Email already registered")
+
                 session.add(user)
                 await session.flush()
                 await session.refresh(user)
         else:
             # Platform-level user (no tenant context)
+            result = await self.db.execute(
+                select(User).where(User.email == email)
+            )
+            existing_user = result.scalar_one_or_none()
+
+            if existing_user:
+                raise ValueError("Email already registered")
+
             self.db.add(user)
             await self.db.commit()
             await self.db.refresh(user)

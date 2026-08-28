@@ -7,6 +7,7 @@ from app.database import get_db
 from app.contexts.identity.application.services import IdentityService
 from .schemas import UserCreate, UserResponse, UserLogin, TokenResponse
 from app.auth.jwt_handler import create_access_token
+from app.auth.jwt_handler import get_optional_current_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +15,20 @@ router = APIRouter(prefix="/api/v1/identity", tags=["identity"])
 
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
+async def create_user(
+    user_data: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    current_tenant_id: UUID | None = Depends(get_optional_current_tenant_id),
+):
     """Create a new user account."""
     try:
+        if user_data.tenant_id is not None:
+            if current_tenant_id != user_data.tenant_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized to create a user for this tenant",
+                )
+
         service = IdentityService(db)
         user = await service.create_user(
             email=user_data.email,

@@ -41,28 +41,28 @@ async def tenant_middleware(request: Request, call_next):
     - Header-based tenant resolution is completely disabled
     - No X-Tenant-ID header processing for public API requests
     """
-    from app.database import get_db
     from app.middleware import get_tenant_context
     
     from sqlalchemy.exc import ProgrammingError
 
     try:
-        # Get database session for tenant resolution
-        async for db in get_db():
-            try:
+        # Resolve tenant with a short-lived session before handing off the request.
+        from app.database import AsyncSessionLocal
+
+        try:
+            async with AsyncSessionLocal() as db:
                 tenant_context = await get_tenant_context(request, db)
-            except ProgrammingError:
-                # Database schema may not be ready (missing tenants table).
-                # Treat as no tenant rather than failing the whole request.
-                tenant_context = None
+        except ProgrammingError:
+            # Database schema may not be ready (missing tenants table).
+            # Treat as no tenant rather than failing the whole request.
+            tenant_context = None
 
-            request.state.tenant_context = tenant_context
+        request.state.tenant_context = tenant_context
 
-            if tenant_context:
-                request.state.current_tenant_id = str(tenant_context.tenant_id)
+        if tenant_context:
+            request.state.current_tenant_id = str(tenant_context.tenant_id)
 
-            response = await call_next(request)
-            return response
+        return await call_next(request)
     except HTTPException:
         # Let HTTPException bubble up for proper error responses
         raise
