@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, DateTime, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 import uuid
 from app.database import Base
@@ -20,9 +20,26 @@ class Tenant(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     slug = Column(String, nullable=False, unique=True)
-    status = Column(SQLEnum(TenantStatus), default=TenantStatus.PROVISIONING, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    status = Column(
+        SQLEnum(
+            TenantStatus,
+            name="tenantstatus",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        default=TenantStatus.PROVISIONING,
+        nullable=False,
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     # Invariants enforced at application level:
     # - slug is globally unique

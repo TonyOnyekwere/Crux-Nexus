@@ -1,9 +1,13 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from app.database import get_db
 from app.contexts.tenant_management.application.services import TenantService
 from .schemas import TenantCreate, TenantResponse, TenantStatusUpdate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/tenants", tags=["tenants"])
 
@@ -15,10 +19,26 @@ async def create_tenant(tenant_data: TenantCreate, db: AsyncSession = Depends(ge
         service = TenantService(db)
         tenant = await service.create_tenant(slug=tenant_data.slug)
         return TenantResponse.model_validate(tenant)
+    except HTTPException:
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create tenant")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except IntegrityError:
+        await db.rollback()
+        logger.exception("Database integrity error while creating tenant")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tenant could not be created because of a data conflict",
+        )
+    except Exception:
+        logger.exception("Failed to create tenant")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create tenant",
+        )
 
 
 @router.get("/{tenant_id}", response_model=TenantResponse)
