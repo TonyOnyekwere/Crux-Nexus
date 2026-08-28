@@ -37,6 +37,8 @@ async def create_user(
             tenant_id=user_data.tenant_id,
         )
         return UserResponse.model_validate(user)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
