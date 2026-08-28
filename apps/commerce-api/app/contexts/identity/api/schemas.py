@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, model_validator
 from uuid import UUID
 from datetime import datetime
 from app.contexts.identity.domain.entities import UserStatus, AuthProvider
@@ -9,6 +9,16 @@ class UserCreate(BaseModel):
     password: str | None = None
     auth_provider: AuthProvider = AuthProvider.PASSWORD
     tenant_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_authentication(self):
+        if self.auth_provider == AuthProvider.PASSWORD and not self.password:
+            raise ValueError("Password is required for password authentication")
+
+        if self.auth_provider != AuthProvider.PASSWORD and self.password:
+            raise ValueError("Password must not be provided for OAuth authentication")
+
+        return self
 
 
 class UserResponse(BaseModel):

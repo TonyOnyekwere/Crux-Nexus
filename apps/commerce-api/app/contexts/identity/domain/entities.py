@@ -1,7 +1,7 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 import uuid
 from app.database import Base
@@ -26,10 +26,36 @@ class User(Base):
     tenant_id = Column(UUID(as_uuid=True), nullable=True)  # Will be filled for merchant users
     email = Column(String, nullable=False, unique=True)
     password_hash = Column(String, nullable=True)  # NULL for OAuth users
-    auth_provider = Column(SQLEnum(AuthProvider), default=AuthProvider.PASSWORD, nullable=False)
-    status = Column(SQLEnum(UserStatus), default=UserStatus.GUEST, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    auth_provider = Column(
+        SQLEnum(
+            AuthProvider,
+            name="authprovider",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        default=AuthProvider.PASSWORD,
+        nullable=False,
+    )
+
+    status = Column(
+        SQLEnum(
+            UserStatus,
+            name="userstatus",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        default=UserStatus.GUEST,
+        nullable=False,
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     # Relationships
     # tenant_memberships = relationship("TenantMember", back_populates="user")

@@ -1,11 +1,14 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from app.database import get_db
 from app.contexts.identity.application.services import IdentityService
 from .schemas import UserCreate, UserResponse, UserLogin, TokenResponse
-from app.contexts.identity.domain.entities import CruxNexusError
 from app.auth.jwt_handler import create_access_token
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/identity", tags=["identity"])
 
@@ -23,10 +26,23 @@ async def create_user(user_data: UserCreate, db: AsyncSession = Depends(get_db))
         )
         return UserResponse.model_validate(user)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create user")
-
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except IntegrityError:
+        await db.rollback()
+        logger.exception("Database integrity error while creating user")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User could not be created because of a data conflict",
+        )
+    except Exception:
+        logger.exception("Failed to create user")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user",
+        )
 
 @router.post("/login", response_model=TokenResponse)
 async def login(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
@@ -55,9 +71,12 @@ async def login(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Login failed")
-
+    except Exception:
+        logger.exception("Login failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Login failed",
+        )
 
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(user_id: str, db: AsyncSession = Depends(get_db)):
@@ -70,7 +89,8 @@ async def get_user(user_id: str, db: AsyncSession = Depends(get_db)):
         return UserResponse.model_validate(user)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to retrieve user")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve user")
 
 
@@ -85,5 +105,6 @@ async def get_user_by_email(email: str, db: AsyncSession = Depends(get_db)):
         return UserResponse.model_validate(user)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to retrieve user by email")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve user")
