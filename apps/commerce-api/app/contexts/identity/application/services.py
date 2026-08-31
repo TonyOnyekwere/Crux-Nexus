@@ -2,7 +2,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from passlib.context import CryptContext
 from app.contexts.identity.domain.entities import User, UserStatus, AuthProvider
-from app.database.tenant_transaction import tenant_transaction
 import uuid
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -17,66 +16,43 @@ class IdentityService:
         email: str,
         password: str | None = None,
         auth_provider: AuthProvider = AuthProvider.PASSWORD,
-        tenant_id: uuid.UUID | None = None,
     ) -> User:
-        """Create a new user account."""
+        """Create a global user account (no tenant association)."""
         password_hash = None
         if password and auth_provider == AuthProvider.PASSWORD:
             password_hash = pwd_context.hash(password)
-        
+
+        result = await self.db.execute(
+            select(User).where(User.email == email)
+        )
+        if result.scalar_one_or_none():
+            raise ValueError("Email already registered")
+
         user = User(
             id=uuid.uuid4(),
             email=email,
             password_hash=password_hash,
             auth_provider=auth_provider,
-            status=UserStatus.GUEST,
-            tenant_id=tenant_id,
+            status=UserStatus.ACTIVE,
         )
-        
-        if tenant_id:
-            async with tenant_transaction(self.db, tenant_id) as session:
-                result = await session.execute(
-                    select(User).where(User.email == email)
-                )
-                existing_user = result.scalar_one_or_none()
 
-                if existing_user:
-                    raise ValueError("Email already registered")
-
-                session.add(user)
-                await session.flush()
-                await session.refresh(user)
-        else:
-            # Platform-level user (no tenant context)
-            result = await self.db.execute(
-                select(User).where(User.email == email)
-            )
-            existing_user = result.scalar_one_or_none()
-
-            if existing_user:
-                raise ValueError("Email already registered")
-
-            self.db.add(user)
-            await self.db.commit()
-            await self.db.refresh(user)
-        
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
         return user
 
     async def verify_password(self, user: User, password: str) -> bool:
-        """Verify a user's password."""
         if not user.password_hash:
             return False
         return pwd_context.verify(password, user.password_hash)
 
     async def get_user_by_email(self, email: str) -> User | None:
-        """Get a user by email address."""
         result = await self.db.execute(
             select(User).where(User.email == email)
         )
         return result.scalar_one_or_none()
 
     async def get_user_by_id(self, user_id: uuid.UUID) -> User | None:
-        """Get a user by ID."""
         result = await self.db.execute(
             select(User).where(User.id == user_id)
         )

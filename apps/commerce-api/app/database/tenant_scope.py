@@ -8,8 +8,16 @@ Any table listed here MUST:
 - enforce tenant isolation through PostgreSQL policy
 
 Control-plane tables must NOT be added here.
+
+Note: users table is NOT tenant-scoped (global identity).
+Future tenant-owned commerce data (products, orders, etc.) will be added here.
 """
 
 TENANT_SCOPED_TABLES = (
-    "users",
+    # Future tenant-owned commerce data tables will be added here:
+    # "products",
+    # "orders",
+    # "customers",
+    # "inventory",
+    # etc.
 )

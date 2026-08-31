@@ -1,93 +1,227 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
 from uuid import UUID
-from app.database import get_db
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.authorization import Permission, role_has_permission
+from app.auth.jwt_handler import get_current_tenant_context, get_current_user_id
+from app.contexts.identity.application.services import IdentityService
+from app.contexts.merchant_management.application.services import MerchantService
 from app.contexts.tenant_management.application.services import TenantService
-from .schemas import TenantCreate, TenantResponse, TenantStatusUpdate
+from app.database import get_db
+from app.exceptions import CapacityExceeded, CruxNexusError
+
+from .schemas import (
+    StaffInviteRequest,
+    StorefrontCreate,
+    TenantResponse,
+    TenantStatusUpdate,
+)
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/tenants", tags=["tenants"])
+router = APIRouter(prefix="/api/v1", tags=["storefronts"])
 
 
-@router.post("", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
-async def create_tenant(tenant_data: TenantCreate, db: AsyncSession = Depends(get_db)):
-    """Create a new tenant."""
+@router.post("/storefronts", status_code=status.HTTP_201_CREATED)
+async def create_storefront(
+    payload: StorefrontCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    merchant_service = MerchantService(db)
+    merchant_account_id = await merchant_service.get_merchant_account_id_for_user(
+        user_id
+    )
+    if merchant_account_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "MERCHANT_REQUIRED",
+                    "message": "No merchant account found for this user.",
+                    "details": {},
+                }
+            },
+        )
+
     try:
         service = TenantService(db)
-        tenant = await service.create_tenant(slug=tenant_data.slug)
-        return TenantResponse.model_validate(tenant)
-    except HTTPException:
-        raise
-    except ValueError as e:
+        tenant = await service.create_storefront(
+            merchant_account_id=merchant_account_id,
+            owner_user_id=user_id,
+            slug=payload.slug,
+        )
+        return {"data": TenantResponse.model_validate(tenant).model_dump()}
+    except CapacityExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
+        )
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail={"error": {"code": "VALIDATION_ERROR", "message": str(exc), "details": {}}},
         )
     except IntegrityError:
         await db.rollback()
-        logger.exception("Database integrity error while creating tenant")
+        logger.exception("Database integrity error while creating storefront")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Tenant could not be created because of a data conflict",
+            detail={
+                "error": {
+                    "code": "STOREFRONT_CONFLICT",
+                    "message": "Storefront could not be created because of a data conflict.",
+                    "details": {},
+                }
+            },
         )
-    except Exception:
-        logger.exception("Failed to create tenant")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create tenant",
-        )
 
 
-@router.get("/{tenant_id}", response_model=TenantResponse)
-async def get_tenant(tenant_id: str, db: AsyncSession = Depends(get_db)):
-    """Get a tenant by ID."""
-    try:
-        service = TenantService(db)
-        tenant = await service.get_tenant_by_id(UUID(tenant_id))
-        if not tenant:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
-        return TenantResponse.model_validate(tenant)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve tenant")
-
-
-@router.get("/slug/{slug}", response_model=TenantResponse)
-async def get_tenant_by_slug(slug: str, db: AsyncSession = Depends(get_db)):
-    """Get a tenant by slug."""
-    try:
-        service = TenantService(db)
-        tenant = await service.get_tenant_by_slug(slug)
-        if not tenant:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
-        return TenantResponse.model_validate(tenant)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve tenant")
-
-
-@router.patch("/{tenant_id}/status", response_model=TenantResponse)
-async def update_tenant_status(
-    tenant_id: str, 
-    status_update: TenantStatusUpdate, 
-    db: AsyncSession = Depends(get_db)
+@router.get("/storefronts/{tenant_id}")
+async def get_storefront(
+    tenant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
 ):
-    """Update tenant status."""
+    service = TenantService(db)
+    membership = await service.user_has_membership(user_id, tenant_id)
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "MEMBERSHIP_REQUIRED",
+                    "message": "Not authorized to access this storefront.",
+                    "details": {},
+                }
+            },
+        )
+
+    tenant = await service.get_tenant_by_id(tenant_id)
+    if tenant is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "TENANT_NOT_FOUND",
+                    "message": "Storefront not found.",
+                    "details": {},
+                }
+            },
+        )
+
+    return {"data": TenantResponse.model_validate(tenant).model_dump()}
+
+
+@router.post("/tenants/{tenant_id}/members", status_code=status.HTTP_201_CREATED)
+async def invite_staff_member(
+    tenant_id: UUID,
+    payload: StaffInviteRequest,
+    db: AsyncSession = Depends(get_db),
+    tenant_context: dict = Depends(get_current_tenant_context),
+):
+    if tenant_context["tenant_id"] != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "TENANT_MISMATCH",
+                    "message": "Token tenant does not match requested storefront.",
+                    "details": {},
+                }
+            },
+        )
+
+    from app.contexts.tenant_management.domain.membership import TenantRole
+
+    inviter_role = TenantRole(tenant_context["role"])
+    if not role_has_permission(inviter_role, Permission.MANAGE_STAFF):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "FORBIDDEN",
+                    "message": "Only owners can invite staff.",
+                    "details": {},
+                }
+            },
+        )
+
+    merchant_service = MerchantService(db)
+    merchant_account_id = await merchant_service.get_merchant_account_id_for_user(
+        tenant_context["user_id"]
+    )
+    if merchant_account_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "MERCHANT_REQUIRED",
+                    "message": "No merchant account found for this user.",
+                    "details": {},
+                }
+            },
+        )
+
+    identity_service = IdentityService(db)
+    invitee = await identity_service.get_user_by_email(payload.email)
+    if invitee is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "USER_NOT_FOUND",
+                    "message": "Invitee must register before being added.",
+                    "details": {},
+                }
+            },
+        )
+
     try:
         service = TenantService(db)
-        tenant = await service.update_tenant_status(
-            tenant_id=UUID(tenant_id), 
-            new_status=status_update.status
+        membership = await service.add_staff_member(
+            merchant_account_id=merchant_account_id,
+            tenant_id=tenant_id,
+            user_id=invitee.id,
+            role=payload.role,
         )
-        return TenantResponse.model_validate(tenant)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update tenant status")
+        return {
+            "data": {
+                "membership_id": str(membership.id),
+                "user_id": str(invitee.id),
+                "tenant_id": str(tenant_id),
+                "role": membership.role.value,
+            }
+        }
+    except CapacityExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": {"code": "VALIDATION_ERROR", "message": str(exc), "details": {}}},
+        )
+
+
+@router.patch("/tenants/{tenant_id}/status")
+async def update_tenant_status(
+    tenant_id: UUID,
+    status_update: TenantStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    _user_id: UUID = Depends(get_current_user_id),
+):
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": {
+                "code": "PLATFORM_ADMIN_REQUIRED",
+                "message": "Tenant lifecycle changes require platform authorization.",
+                "details": {},
+            }
+        },
+    )

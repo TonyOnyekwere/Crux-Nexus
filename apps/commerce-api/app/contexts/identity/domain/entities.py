@@ -1,10 +1,17 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 import enum
 import uuid
+
+from sqlalchemy import Column, DateTime, Enum as SQLEnum, String
+from sqlalchemy.dialects.postgresql import UUID
+
 from app.database import Base
+
+
+class UserStatus(str, enum.Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    SUSPENDED = "suspended"
 
 
 class AuthProvider(str, enum.Enum):
@@ -13,52 +20,63 @@ class AuthProvider(str, enum.Enum):
     APPLE = "apple"
 
 
-class UserStatus(str, enum.Enum):
-    GUEST = "guest"
-    ACTIVE = "active"
-    DISABLED = "disabled"
-
-
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id = Column(UUID(as_uuid=True), nullable=True)  # Will be filled for merchant users
-    email = Column(String, nullable=False, unique=True)
-    password_hash = Column(String, nullable=True)  # NULL for OAuth users
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    email = Column(
+        String,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    password_hash = Column(
+        String,
+        nullable=True,
+    )
+
     auth_provider = Column(
         SQLEnum(
             AuthProvider,
             name="authprovider",
-            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+            values_callable=lambda enum_cls: [
+                member.value for member in enum_cls
+            ],
         ),
-        default=AuthProvider.PASSWORD,
         nullable=False,
+        default=AuthProvider.PASSWORD,
     )
 
     status = Column(
         SQLEnum(
             UserStatus,
             name="userstatus",
-            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+            values_callable=lambda enum_cls: [
+                member.value for member in enum_cls
+            ],
         ),
-        default=UserStatus.GUEST,
         nullable=False,
+        default=UserStatus.ACTIVE,
     )
+
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
     updated_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
-
-    # Relationships
-    # tenant_memberships = relationship("TenantMember", back_populates="user")
 
 
 class CruxNexusError(Exception):

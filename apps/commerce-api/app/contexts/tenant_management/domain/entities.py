@@ -41,9 +41,13 @@ class Tenant(Base):
         nullable=False,
     )
 
+    # Relationships are established in app.database.models.py
+    # to avoid circular import issues
+
     # Invariants enforced at application level:
     # - slug is globally unique
     # - status transitions follow the lifecycle
     # - PROVISIONING → ONBOARDING → ACTIVE (normal flow)
     # - ACTIVE ↔ SUSPENDED (administrative actions)
     # - Any → OFFBOARDING → ARCHIVED (terminal)
+    # - One tenant belongs to exactly one merchant account (via merchant_account_tenants)

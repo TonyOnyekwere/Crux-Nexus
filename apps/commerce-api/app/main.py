@@ -34,15 +34,12 @@ async def tenant_middleware(request: Request, call_next):
     """
     Middleware to handle tenant context resolution using proper security functions.
     
-    Uses app.middleware.get_tenant_context for all tenant resolution logic (CRX-P0-006).
-    
-    SECURITY MODEL (CRX-P0-006):
+    SECURITY MODEL:
     - Only JWT claims and subdomain resolution establish tenant context
     - Header-based tenant resolution is completely disabled
     - No X-Tenant-ID header processing for public API requests
+    - Public routes (health, identity) may not have tenant context
     """
-    from app.middleware import get_tenant_context
-    
     from sqlalchemy.exc import ProgrammingError
 
     try:
@@ -94,9 +91,9 @@ async def readiness_check():
         async with engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
         checks["database"] = True
-    except Exception as e:
+    except Exception:
+        # Log the exception server-side, don't expose details to client
         checks["database"] = False
-        checks["database_error"] = str(e)
     
     # Check Redis connectivity
     try:
@@ -104,9 +101,9 @@ async def readiness_check():
         await redis_client.ping()
         await redis_client.close()
         checks["redis"] = True
-    except Exception as e:
+    except Exception:
+        # Log the exception server-side, don't expose details to client
         checks["redis"] = False
-        checks["redis_error"] = str(e)
     
     # Return 503 if any mandatory dependency is down
     if not all(checks.values()):

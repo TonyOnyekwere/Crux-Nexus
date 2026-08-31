@@ -10,9 +10,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "production"
     APP_NAME: str = "CruxNexus Commerce API"
     DEBUG: bool = False
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     CORS_ORIGINS: list[str] = [
         "https://cruxnexus.com",
         "http://localhost:3000"
@@ -38,6 +37,10 @@ class Settings(BaseSettings):
                 raise ValueError("SECRET_KEY must be provided in production environment")
             if not self.JWT_SECRET_KEY or self.JWT_SECRET_KEY in ["development-jwt-secret-key", "change-this-in-production-jwt-secret-key"]:
                 raise ValueError("JWT_SECRET_KEY must be provided in production environment")
+            if len(self.JWT_SECRET_KEY) < 32:
+                raise ValueError("JWT_SECRET_KEY must be at least 32 characters for security")
+            if len(self.SECRET_KEY) < 32:
+                raise ValueError("SECRET_KEY must be at least 32 characters for security")
 
 
 @lru_cache()

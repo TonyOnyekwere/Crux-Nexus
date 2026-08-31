@@ -6,16 +6,3 @@ healthcheckPath = "/health/live"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
-
-[[services]]
-name = "commerce-api"
-
-  [[services.ports]]
-  port = 8000
-  handlers = ["http"]
-
-    [services.ports.proxy]
-    protocol = "tcp"
-
-  [[services.env]]
-  ENVIRONMENT = "staging"

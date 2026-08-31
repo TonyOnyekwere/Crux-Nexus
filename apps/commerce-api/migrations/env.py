@@ -8,7 +8,8 @@ import os
 # Add the parent directory to the path so we can import our modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from app.database import Base
+# Import Base from models module for proper model discovery
+from app.database.models import Base
 from app.config import get_settings
 
 # this is the Alembic Config object
