@@ -241,18 +241,19 @@ def upgrade() -> None:
     # ========================================
     # STEP D: REMOVE OLD ARCHITECTURE (CONTRACT)
     # ========================================
-    
-    # Remove users.tenant_id column
-    op.drop_column("users", "tenant_id")
-    
-    # Remove user table RLS policies
+
+    # Remove stale user table RLS policies first. These policies depend on users.tenant_id
+    # and PostgreSQL will reject dropping the column while they remain active.
     op.execute("DROP POLICY IF EXISTS users_tenant_select ON users")
     op.execute("DROP POLICY IF EXISTS users_tenant_update ON users")
     op.execute("DROP POLICY IF EXISTS users_tenant_delete ON users")
     op.execute("DROP POLICY IF EXISTS users_insert ON users")
-    
+
     # Disable RLS on users table (users are global identity)
     op.execute("ALTER TABLE users DISABLE ROW LEVEL SECURITY")
+
+    # Remove users.tenant_id column only after policy dependencies are cleared.
+    op.drop_column("users", "tenant_id")
 
 
 def downgrade() -> None:
