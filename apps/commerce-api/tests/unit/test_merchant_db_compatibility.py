@@ -74,3 +74,21 @@ async def test_onboard_merchant_rejects_duplicate_merchant_for_same_user(db_sess
             storefront_slug="second-storefront",
             plan_code="starter",
         )
+
+
+@pytest.mark.asyncio
+async def test_onboard_merchant_creates_default_plan_when_seed_missing(db_session):
+    user = User(email="new-plan@merchant.com", password_hash="hash")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = OnboardingService(db_session)
+    result = await service.onboard_merchant(
+        user_id=user.id,
+        merchant_name="Seeded Merchant",
+        storefront_slug="seeded-storefront",
+        plan_code="starter",
+    )
+
+    assert result["merchant_account_id"] is not None
+    assert result["tenant_id"] is not None

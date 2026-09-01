@@ -94,6 +94,8 @@ class OnboardingService:
 
         # Resolve subscription plan in a case-insensitive way to match the
         # seeded values ('starter', 'business', 'enterprise') and the API contract.
+        # If the deployment database is missing the seed rows, recover by creating
+        # the canonical plans before rejecting the onboarding request.
         normalized_plan_code = plan_code.strip().lower()
         plan_result = await self.db.execute(
             select(SubscriptionPlan).where(
@@ -103,7 +105,61 @@ class OnboardingService:
         )
         plan = plan_result.scalar_one_or_none()
         if not plan:
-            raise ValueError(f"Subscription plan '{plan_code}' not found or inactive")
+            default_plans = [
+                {
+                    "code": "starter",
+                    "name": "Starter",
+                    "included_storefronts": 1,
+                    "base_staff_per_storefront": 0,
+                    "max_extra_storefronts": 0,
+                    "max_extra_staff": 0,
+                },
+                {
+                    "code": "business",
+                    "name": "Business",
+                    "included_storefronts": 1,
+                    "base_staff_per_storefront": 3,
+                    "max_extra_storefronts": 1,
+                    "max_extra_staff": 2,
+                },
+                {
+                    "code": "enterprise",
+                    "name": "Enterprise",
+                    "included_storefronts": 1,
+                    "base_staff_per_storefront": 8,
+                    "max_extra_storefronts": 2,
+                    "max_extra_staff": 4,
+                },
+            ]
+            for default_plan in default_plans:
+                existing_plan_result = await self.db.execute(
+                    select(SubscriptionPlan).where(
+                        func.lower(SubscriptionPlan.code) == default_plan["code"],
+                    )
+                )
+                if existing_plan_result.scalar_one_or_none() is None:
+                    self.db.add(
+                        SubscriptionPlan(
+                            code=default_plan["code"],
+                            name=default_plan["name"],
+                            included_storefronts=default_plan["included_storefronts"],
+                            base_staff_per_storefront=default_plan["base_staff_per_storefront"],
+                            max_extra_storefronts=default_plan["max_extra_storefronts"],
+                            max_extra_staff=default_plan["max_extra_staff"],
+                            active=True,
+                        )
+                    )
+            await self.db.flush()
+
+            plan_result = await self.db.execute(
+                select(SubscriptionPlan).where(
+                    func.lower(SubscriptionPlan.code) == normalized_plan_code,
+                    SubscriptionPlan.active.is_(True),
+                )
+            )
+            plan = plan_result.scalar_one_or_none()
+            if not plan:
+                raise ValueError(f"Subscription plan '{plan_code}' not found or inactive")
 
         # Create merchant account
         merchant_account = MerchantAccount(
