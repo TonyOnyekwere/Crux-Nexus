@@ -22,6 +22,9 @@ from app.contexts.billing.domain.entities import SubscriptionPlan
 from app.contexts.billing.domain.merchant_subscription import MerchantSubscription
 from app.contexts.billing.domain.merchant_entitlement import MerchantEntitlement
 from app.contexts.billing.domain.storefront_entitlement_allocation import StorefrontEntitlementAllocation
+from app.contexts.billing.domain.merchant_trial_history import MerchantTrialHistory
+from app.contexts.billing.domain.storefront_staff_capacity import StorefrontStaffCapacity
+from app.contexts.billing.domain.staff_capacity_allocation import StaffCapacityAllocation
 
 # Establish relationships after all models are imported
 # Note: relationships are established here to avoid circular import issues

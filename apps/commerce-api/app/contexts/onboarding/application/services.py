@@ -1,32 +1,18 @@
-import uuid
-from uuid import UUID
-
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from uuid import UUID
+import logging
 
-from app.contexts.billing.domain.entities import (
-    MerchantSubscription,
-    SubscriptionPlan,
-    SubscriptionPlanCode,
-    SubscriptionStatus,
-)
 from app.contexts.identity.domain.entities import User
-from app.contexts.merchant_management.domain.entities import (
-    MerchantAccount,
-    MerchantAccountRole,
-    MerchantAccountUser,
-    MerchantStatus,
-)
-from app.contexts.merchant_management.domain.merchant_account_tenant import (
-    MerchantAccountTenant,
-)
+from app.contexts.merchant_management.domain.entities import MerchantAccount
+from app.contexts.merchant_management.domain.merchant_account_user import MerchantAccountUser, MerchantUserRole
+from app.contexts.merchant_management.domain.merchant_account_tenant import MerchantAccountTenant
 from app.contexts.tenant_management.domain.entities import Tenant, TenantStatus
-from app.contexts.tenant_management.domain.membership import (
-    MembershipStatus,
-    TenantMembership,
-    TenantRole,
-)
-from app.exceptions import NotFoundError
+from app.contexts.tenant_management.domain.membership import TenantMembership, TenantRole
+from app.contexts.billing.domain.entities import SubscriptionPlan
+from app.contexts.billing.domain.merchant_subscription import MerchantSubscription, SubscriptionStatus
+
+logger = logging.getLogger(__name__)
 
 
 class OnboardingService:
@@ -40,89 +26,114 @@ class OnboardingService:
         merchant_name: str,
         storefront_slug: str,
         plan_code: str,
-    ) -> tuple[MerchantAccount, Tenant]:
-        normalized_plan = plan_code.strip().lower()
-        try:
-            plan_enum = SubscriptionPlanCode(normalized_plan)
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid plan code. Allowed: {', '.join(c.value for c in SubscriptionPlanCode)}"
-            ) from exc
+    ) -> dict:
+        """
+        Complete merchant onboarding transaction.
+        
+        This creates the complete foundation in one atomic transaction:
+        - Merchant Account
+        - Merchant Account User relationship
+        - Subscription
+        - Tenant (Storefront)
+        - Merchant Account Tenant ownership
+        - Tenant Membership (OWNER)
+        
+        Transaction flow:
+        BEGIN
+        ↓
+        Verify User exists
+        ↓
+        Create Merchant Account
+        ↓
+        Create Merchant Account User
+        ↓
+        Resolve Subscription Plan
+        ↓
+        Create Merchant Subscription
+        ↓
+        Create Tenant
+        ↓
+        Create Merchant Account Tenant ownership
+        ↓
+        Create Tenant Membership (OWNER)
+        ↓
+        COMMIT
+        """
+        # Verify user exists
+        user_result = await self.db.execute(
+            select(User).where(User.id == user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        if not user:
+            raise ValueError("User not found")
 
-        async with self.db.begin():
-            user = await self.db.get(User, user_id)
-            if user is None:
-                raise NotFoundError("user", "User not found.")
-
-            existing_slug = await self.db.execute(
-                select(Tenant).where(Tenant.slug == storefront_slug)
+        # Resolve subscription plan
+        plan_result = await self.db.execute(
+            select(SubscriptionPlan).where(
+                SubscriptionPlan.code == plan_code,
+                SubscriptionPlan.active == True
             )
-            if existing_slug.scalar_one_or_none():
-                raise ValueError("Slug already taken")
+        )
+        plan = plan_result.scalar_one_or_none()
+        if not plan:
+            raise ValueError(f"Subscription plan '{plan_code}' not found or inactive")
 
-            plan_result = await self.db.execute(
-                select(SubscriptionPlan).where(
-                    SubscriptionPlan.code == plan_enum.value,
-                    SubscriptionPlan.active.is_(True),
-                )
-            )
-            plan = plan_result.scalar_one_or_none()
-            if plan is None:
-                raise NotFoundError("subscription_plan", "Plan not found.")
+        # Create merchant account
+        merchant_account = MerchantAccount(
+            name=merchant_name,
+            status="active",
+        )
+        self.db.add(merchant_account)
+        await self.db.flush()
 
-            merchant = MerchantAccount(
-                id=uuid.uuid4(),
-                name=merchant_name,
-                status=MerchantStatus.ACTIVE,
-            )
-            self.db.add(merchant)
-            await self.db.flush()
+        # Create merchant account user relationship
+        merchant_account_user = MerchantAccountUser(
+            merchant_account_id=merchant_account.id,
+            user_id=user_id,
+            role=MerchantUserRole.OWNER.value,
+        )
+        self.db.add(merchant_account_user)
+        await self.db.flush()
 
-            self.db.add(
-                MerchantAccountUser(
-                    id=uuid.uuid4(),
-                    user_id=user_id,
-                    merchant_account_id=merchant.id,
-                    role=MerchantAccountRole.OWNER,
-                )
-            )
+        # Create merchant subscription
+        merchant_subscription = MerchantSubscription(
+            merchant_account_id=merchant_account.id,
+            subscription_plan_id=plan.id,
+            status=SubscriptionStatus.TRIALING.value,
+        )
+        self.db.add(merchant_subscription)
+        await self.db.flush()
 
-            self.db.add(
-                MerchantSubscription(
-                    id=uuid.uuid4(),
-                    merchant_account_id=merchant.id,
-                    subscription_plan_id=plan.id,
-                    status=SubscriptionStatus.ACTIVE,
-                )
-            )
+        # Create tenant (storefront)
+        tenant = Tenant(
+            slug=storefront_slug,
+            status=TenantStatus.PROVISIONING,
+        )
+        self.db.add(tenant)
+        await self.db.flush()
 
-            tenant = Tenant(
-                id=uuid.uuid4(),
-                slug=storefront_slug,
-                status=TenantStatus.PROVISIONING,
-            )
-            self.db.add(tenant)
-            await self.db.flush()
+        # Create merchant account tenant ownership
+        merchant_account_tenant = MerchantAccountTenant(
+            merchant_account_id=merchant_account.id,
+            tenant_id=tenant.id,
+        )
+        self.db.add(merchant_account_tenant)
+        await self.db.flush()
 
-            self.db.add(
-                MerchantAccountTenant(
-                    id=uuid.uuid4(),
-                    merchant_account_id=merchant.id,
-                    tenant_id=tenant.id,
-                )
-            )
+        # Create tenant membership (OWNER)
+        tenant_membership = TenantMembership(
+            tenant_id=tenant.id,
+            user_id=user_id,
+            role=TenantRole.OWNER.value,
+        )
+        self.db.add(tenant_membership)
+        await self.db.flush()
 
-            self.db.add(
-                TenantMembership(
-                    id=uuid.uuid4(),
-                    tenant_id=tenant.id,
-                    user_id=user_id,
-                    role=TenantRole.OWNER,
-                    status=MembershipStatus.ACTIVE,
-                )
-            )
+        await self.db.commit()
 
-            await self.db.refresh(merchant)
-            await self.db.refresh(tenant)
-
-        return merchant, tenant
+        return {
+            "merchant_account_id": merchant_account.id,
+            "tenant_id": tenant.id,
+            "subscription_id": merchant_subscription.id,
+            "membership_id": tenant_membership.id,
+        }

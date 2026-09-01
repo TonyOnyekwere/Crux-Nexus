@@ -1,39 +1,46 @@
 from enum import Enum
-
-from app.contexts.tenant_management.domain.membership import TenantRole
+from typing import Dict, Set
 
 
 class Permission(str, Enum):
+    """Individual permissions for granular access control."""
     VIEW_DASHBOARD = "view_dashboard"
     MANAGE_PRODUCTS = "manage_products"
     MANAGE_INVENTORY = "manage_inventory"
     MANAGE_ORDERS = "manage_orders"
     MANAGE_STAFF = "manage_staff"
     MANAGE_STORE_SETTINGS = "manage_store_settings"
+    VIEW_REPORTS = "view_reports"
+    EXPORT_DATA = "export_data"
 
 
-ROLE_PERMISSIONS: dict[TenantRole, set[Permission]] = {
-    TenantRole.OWNER: {
+# Role to permissions mapping
+ROLE_PERMISSIONS: Dict[str, Set[str]] = {
+    "owner": {
         Permission.VIEW_DASHBOARD,
         Permission.MANAGE_PRODUCTS,
         Permission.MANAGE_INVENTORY,
         Permission.MANAGE_ORDERS,
         Permission.MANAGE_STAFF,
         Permission.MANAGE_STORE_SETTINGS,
+        Permission.VIEW_REPORTS,
+        Permission.EXPORT_DATA,
     },
-    TenantRole.MANAGER: {
+    "manager": {
         Permission.VIEW_DASHBOARD,
         Permission.MANAGE_PRODUCTS,
         Permission.MANAGE_INVENTORY,
         Permission.MANAGE_ORDERS,
-        Permission.MANAGE_STORE_SETTINGS,
+        Permission.VIEW_REPORTS,
     },
-    TenantRole.STAFF: {
+    "staff": {
         Permission.VIEW_DASHBOARD,
+        Permission.MANAGE_INVENTORY,
         Permission.MANAGE_ORDERS,
     },
 }
 
 
-def role_has_permission(role: TenantRole, permission: Permission) -> bool:
+def has_permission(role: str, permission: Permission) -> bool:
+    """Check if a role has a specific permission."""
     return permission in ROLE_PERMISSIONS.get(role, set())

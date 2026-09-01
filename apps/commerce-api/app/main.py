@@ -5,6 +5,7 @@ import os
 from app.config import get_settings
 from app.contexts.identity.api.routes import router as identity_router
 from app.contexts.tenant_management.api.routes import router as tenant_router
+from app.contexts.onboarding.api.routes import router as onboarding_router
 from app.middleware import get_tenant_context
 
 settings = get_settings()
@@ -27,6 +28,7 @@ app.add_middleware(
 # Include routers
 app.include_router(identity_router)
 app.include_router(tenant_router)
+app.include_router(onboarding_router)
 
 
 @app.middleware("http")

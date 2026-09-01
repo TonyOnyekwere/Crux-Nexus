@@ -4,17 +4,15 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.contexts.merchant_management.application import capacity
+from app.contexts.merchant_management.application.capacity import CapacityService, CapacityExceededError
 from app.contexts.merchant_management.domain.merchant_account_tenant import (
     MerchantAccountTenant,
 )
 from app.contexts.tenant_management.domain.entities import Tenant, TenantStatus
 from app.contexts.tenant_management.domain.membership import (
-    MembershipStatus,
     TenantMembership,
     TenantRole,
 )
-from app.exceptions import CapacityExceeded, NotFoundError
 
 
 class TenantService:
@@ -28,42 +26,28 @@ class TenantService:
         owner_user_id: UUID,
         slug: str,
     ) -> Tenant:
+        """Create storefront with capacity enforcement and concurrency safety.
+        
+        This is the authoritative storefront creation operation that replaces
+        the old generic tenant creation. It enforces merchant capacity and
+        creates the complete ownership structure atomically.
+        """
+        capacity_service = CapacityService(self.db)
+        
         async with self.db.begin():
-            await capacity.assert_can_create_storefront(self.db, merchant_account_id)
-
+            # Check for slug uniqueness
             existing = await self.db.execute(
                 select(Tenant).where(Tenant.slug == slug)
             )
             if existing.scalar_one_or_none():
                 raise ValueError("Slug already taken")
 
-            tenant = Tenant(
-                id=uuid.uuid4(),
+            # Create storefront with capacity check and concurrency safety
+            tenant = await capacity_service.create_storefront_with_capacity_check(
+                merchant_account_id=merchant_account_id,
+                owner_user_id=owner_user_id,
                 slug=slug,
-                status=TenantStatus.PROVISIONING,
             )
-            self.db.add(tenant)
-            await self.db.flush()
-
-            self.db.add(
-                MerchantAccountTenant(
-                    id=uuid.uuid4(),
-                    merchant_account_id=merchant_account_id,
-                    tenant_id=tenant.id,
-                )
-            )
-
-            self.db.add(
-                TenantMembership(
-                    id=uuid.uuid4(),
-                    tenant_id=tenant.id,
-                    user_id=owner_user_id,
-                    role=TenantRole.OWNER,
-                    status=MembershipStatus.ACTIVE,
-                )
-            )
-
-            await self.db.refresh(tenant)
 
         return tenant
 
@@ -88,7 +72,6 @@ class TenantService:
             select(TenantMembership).where(
                 TenantMembership.user_id == user_id,
                 TenantMembership.tenant_id == tenant_id,
-                TenantMembership.status == MembershipStatus.ACTIVE,
             )
         )
         return result.scalar_one_or_none()
@@ -101,36 +84,52 @@ class TenantService:
         user_id: UUID,
         role: TenantRole,
     ) -> TenantMembership:
+        """Add a staff member to a storefront with capacity enforcement."""
         if role == TenantRole.OWNER:
             raise ValueError("Cannot invite additional owners via staff endpoint.")
 
-        async with self.db.begin():
-            await capacity.assert_can_add_staff(
-                self.db, merchant_account_id, tenant_id
-            )
+        capacity_service = CapacityService(self.db)
 
+        async with self.db.begin():
+            # Check capacity
+            if not await capacity_service.can_add_staff(merchant_account_id, tenant_id):
+                capacity = await capacity_service.get_storefront_staff_capacity(merchant_account_id, tenant_id)
+                current = await capacity_service.get_current_staff_count(tenant_id)
+                raise CapacityExceededError(
+                    "Storefront has reached staff capacity",
+                    {
+                        "capacity": capacity,
+                        "current": current,
+                        "available": 0
+                    }
+                )
+
+            # Check for existing membership
             existing = await self.user_has_membership(user_id, tenant_id)
             if existing:
                 raise ValueError("User already has membership for this storefront.")
 
             membership = TenantMembership(
-                id=uuid.uuid4(),
                 tenant_id=tenant_id,
                 user_id=user_id,
-                role=role,
-                status=MembershipStatus.ACTIVE,
+                role=role.value,
             )
             self.db.add(membership)
-            await self.db.refresh(membership)
+            await self.db.flush()
 
         return membership
 
     async def update_tenant_status(
         self, tenant_id: UUID, new_status: TenantStatus
     ) -> Tenant:
+        """Update tenant status with state machine validation.
+        
+        This should only be called by Control Center or authorized platform roles.
+        Merchant owners should not be able to change platform lifecycle states.
+        """
         tenant = await self.get_tenant_by_id(tenant_id)
         if not tenant:
-            raise NotFoundError("tenant", "Tenant not found.")
+            raise ValueError("Tenant not found")
 
         valid_transitions = {
             TenantStatus.PROVISIONING: [TenantStatus.ONBOARDING, TenantStatus.ACTIVE],
