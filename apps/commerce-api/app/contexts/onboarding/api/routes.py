@@ -1,5 +1,6 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from app.database import get_db
@@ -52,6 +53,19 @@ async def onboard_merchant(
                     "code": "ONBOARDING_VALIDATION_ERROR",
                     "message": str(e),
                     "details": {}
+                }
+            }
+        )
+    except IntegrityError as e:
+        await db.rollback()
+        logger.exception("Merchant onboarding failed due to a database integrity conflict")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": {
+                    "code": "ONBOARDING_CONFLICT",
+                    "message": "Merchant onboarding conflicted with existing data; check uniqueness constraints.",
+                    "details": {"database_error": str(e)}
                 }
             }
         )

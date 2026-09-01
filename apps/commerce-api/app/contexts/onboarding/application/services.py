@@ -67,6 +67,16 @@ class OnboardingService:
         if not user:
             raise ValueError("User not found")
 
+        normalized_slug = storefront_slug.strip().lower()
+        if not normalized_slug:
+            raise ValueError("Storefront slug is required")
+
+        existing_tenant = await self.db.execute(
+            select(Tenant).where(func.lower(Tenant.slug) == normalized_slug)
+        )
+        if existing_tenant.scalar_one_or_none() is not None:
+            raise ValueError(f"Storefront slug '{storefront_slug}' is already in use")
+
         # Resolve subscription plan in a case-insensitive way to match the
         # seeded values ('starter', 'business', 'enterprise') and the API contract.
         normalized_plan_code = plan_code.strip().lower()
@@ -108,7 +118,7 @@ class OnboardingService:
 
         # Create tenant (storefront)
         tenant = Tenant(
-            slug=storefront_slug,
+            slug=normalized_slug,
             status=TenantStatus.PROVISIONING,
         )
         self.db.add(tenant)
