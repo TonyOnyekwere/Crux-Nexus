@@ -12,10 +12,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    CORS_ORIGINS: list[str] = [
-        "https://cruxnexus.com",
-        "http://localhost:3000"
-    ]
+    CORS_ORIGINS: list[str] | None = None
     PLATFORM_DEFAULT_PAYMENT_PROVIDER: str = "paystack"
     PLATFORM_DEFAULT_LOGISTICS_PROVIDER: str = "fallback"
     PLATFORM_DEFAULT_NOTIFICATION_PROVIDER: str = "sendgrid"
@@ -43,6 +40,11 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET_KEY must be at least 32 characters for security")
             if len(self.SECRET_KEY) < 32:
                 raise ValueError("SECRET_KEY must be at least 32 characters for security")
+            self.CORS_ORIGINS = self.CORS_ORIGINS or ["https://cruxnexus.com"]
+        elif env_name == "staging":
+            self.CORS_ORIGINS = self.CORS_ORIGINS or ["https://staging.cruxnexus.com"]
+        else:
+            self.CORS_ORIGINS = self.CORS_ORIGINS or ["http://localhost:3000"]
 
         # Local/test runs should still be able to boot with safe placeholders to support
         # unit tests and development without turning off production validation.

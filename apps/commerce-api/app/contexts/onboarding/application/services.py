@@ -214,6 +214,33 @@ class OnboardingService:
         self.db.add(tenant_membership)
         await self.db.flush()
 
+        from app.kernel.events.publisher import publish_to_outbox
+        from app.kernel.events.types import DomainEvent, EventEnvelope
+
+        await publish_to_outbox(
+            self.db,
+            EventEnvelope(
+                event_type=DomainEvent.MERCHANT_CREATED,
+                aggregate_type="MerchantAccount",
+                aggregate_id=merchant_account.id,
+                payload={
+                    "merchant_name": merchant_name,
+                    "user_id": str(user_id),
+                    "plan_code": plan_code,
+                },
+            ),
+        )
+        await publish_to_outbox(
+            self.db,
+            EventEnvelope(
+                event_type=DomainEvent.STOREFRONT_CREATED,
+                aggregate_type="Tenant",
+                aggregate_id=tenant.id,
+                tenant_id=tenant.id,
+                payload={"slug": normalized_slug, "merchant_account_id": str(merchant_account.id)},
+            ),
+        )
+
         await self.db.commit()
 
         return {

@@ -2,8 +2,10 @@
 
 **Record:** CRX-P0-REM-001
 **Purpose:** Summary of P0 engineering findings remediation
-**Status:** COMPLETED
+**Status:** PARTIALLY SUPERSEDED — see `docs/PHASE-0-ACTUAL-STATUS.md` for current evidence-based status
 **Date:** 2026-08-22
+
+> **Note (2026-09-01):** Items #5 and #6 below reference `test_tenant_isolation.py`, which no longer exists. RLS tenant data-plane proof is not yet applicable (empty `TENANT_SCOPED_TABLES`). Do not use this document as Phase 0 certification evidence.
 
 ---
 

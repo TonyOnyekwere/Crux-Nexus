@@ -2,9 +2,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import UUID
 from app.database import get_db
-from app.auth.jwt_handler import get_current_user_id
+from app.auth.jwt_handler import get_current_merchant_context
 from app.contexts.onboarding.application.services import OnboardingService
 from .schemas import MerchantOnboardingRequest, MerchantOnboardingResponse
 
@@ -17,7 +16,7 @@ router = APIRouter(prefix="/api/v1/onboarding", tags=["onboarding"])
 async def onboard_merchant(
     onboarding_data: MerchantOnboardingRequest,
     db: AsyncSession = Depends(get_db),
-    user_id: UUID = Depends(get_current_user_id),
+    merchant_context: dict = Depends(get_current_merchant_context),
 ):
     """
     Complete merchant onboarding in one atomic transaction.
@@ -35,7 +34,7 @@ async def onboard_merchant(
     try:
         service = OnboardingService(db)
         result = await service.onboard_merchant(
-            user_id=user_id,
+            user_id=merchant_context["user_id"],
             merchant_name=onboarding_data.merchant_name,
             storefront_slug=onboarding_data.storefront_slug,
             plan_code=onboarding_data.plan,

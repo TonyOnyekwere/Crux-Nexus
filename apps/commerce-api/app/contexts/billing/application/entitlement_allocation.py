@@ -43,13 +43,14 @@ class EntitlementAllocationService:
         )
         total_entitlements = entitlement_result.scalar() or 0
         
-        # Get total current allocations
+        # Get total current allocations against ACTIVE entitlements only.
         allocation_result = await self.db.execute(
             select(func.sum(StaffCapacityAllocation.quantity)).where(
                 StaffCapacityAllocation.merchant_entitlement_id.in_(
                     select(MerchantEntitlement.id).where(
                         MerchantEntitlement.merchant_account_id == merchant_account_id,
                         MerchantEntitlement.entitlement_type == entitlement_type,
+                        MerchantEntitlement.status == EntitlementStatus.ACTIVE.value,
                     )
                 )
             )

@@ -1,0 +1,18 @@
+[importlinter]
+root_package = app
+
+[importlinter:contract:1]
+name = Kernel must not import bounded contexts
+type = forbidden
+source_modules =
+    app.kernel
+forbidden_modules =
+    app.contexts
+
+[importlinter:contract:2]
+name = Database layer must not import API routes
+type = forbidden
+source_modules =
+    app.database
+forbidden_modules =
+    app.contexts

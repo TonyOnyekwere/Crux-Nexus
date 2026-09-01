@@ -182,6 +182,18 @@ async def switch_tenant(
         )
 
     membership, tenant = row
+    if getattr(membership, "status", None) != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "MEMBERSHIP_INACTIVE",
+                    "message": "Membership is not active for this storefront.",
+                    "details": {},
+                }
+            },
+        )
+
     if tenant.status == TenantStatus.ARCHIVED:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

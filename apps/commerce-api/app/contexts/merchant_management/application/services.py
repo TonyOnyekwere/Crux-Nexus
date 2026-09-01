@@ -8,47 +8,87 @@ from app.contexts.merchant_management.domain.merchant_account_user import (
     MerchantAccountUser,
     MerchantUserRole,
 )
+from app.kernel.errors.codes import MERCHANT_REQUIRED
+from app.kernel.errors.exceptions import CruxNexusError
+
+
+class MerchantContextRequiredError(CruxNexusError):
+    def __init__(self, message: str = "No merchant account found for this user."):
+        super().__init__(code=MERCHANT_REQUIRED, message=message)
+
+
+class AmbiguousMerchantContextError(CruxNexusError):
+    def __init__(
+        self,
+        message: str = (
+            "Multiple owner merchant accounts found. "
+            "An explicit merchant context is required."
+        ),
+    ):
+        super().__init__(code=MERCHANT_REQUIRED, message=message)
 
 
 class MerchantService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def require_owner_merchant_account_id(self, user_id: UUID) -> UUID:
+        """Return the single owner merchant account for a user.
+
+        Never silently selects among multiple merchants. The database partial
+        unique index uq_one_owner_merchant_per_user enforces at most one owner
+        merchant per user; if multiple rows exist, fail explicitly.
+        """
+        result = await self.db.execute(
+            select(MerchantAccountUser.merchant_account_id).where(
+                MerchantAccountUser.user_id == user_id,
+                MerchantAccountUser.role == MerchantUserRole.OWNER.value,
+            )
+        )
+        merchant_ids = list(result.scalars().all())
+        if not merchant_ids:
+            raise MerchantContextRequiredError()
+        if len(merchant_ids) > 1:
+            raise AmbiguousMerchantContextError()
+        return merchant_ids[0]
+
+    async def get_owner_merchant_account(self, user_id: UUID) -> MerchantAccount | None:
+        try:
+            merchant_account_id = await self.require_owner_merchant_account_id(user_id)
+        except MerchantContextRequiredError:
+            return None
+        except AmbiguousMerchantContextError:
+            raise
+
+        result = await self.db.execute(
+            select(MerchantAccount).where(MerchantAccount.id == merchant_account_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_merchant_account_id_for_user(self, user_id: UUID) -> UUID | None:
+        try:
+            return await self.require_owner_merchant_account_id(user_id)
+        except MerchantContextRequiredError:
+            return None
+
+    # Backward-compatible alias used by existing tests/imports.
     async def get_merchant_for_user(
         self,
         user_id: UUID,
         *,
         role: MerchantUserRole | None = MerchantUserRole.OWNER,
     ) -> MerchantAccount | None:
-        """Return the most recently created merchant for a user.
-
-        The data model allows a user to be linked to multiple merchant accounts
-        over time, especially during onboarding retries or historical repairs.
-        In those cases, a strict scalar-one lookup raises MultipleResultsFound.
-        The API is expected to operate on the user's active merchant context, so
-        we pick the newest merchant as the authoritative account.
-        """
-        query = (
-            select(MerchantAccount)
-            .join(
-                MerchantAccountUser,
-                MerchantAccountUser.merchant_account_id == MerchantAccount.id,
+        if role is not None and role != MerchantUserRole.OWNER:
+            result = await self.db.execute(
+                select(MerchantAccount)
+                .join(
+                    MerchantAccountUser,
+                    MerchantAccountUser.merchant_account_id == MerchantAccount.id,
+                )
+                .where(
+                    MerchantAccountUser.user_id == user_id,
+                    MerchantAccountUser.role == role.value,
+                )
             )
-            .where(MerchantAccountUser.user_id == user_id)
-            .order_by(MerchantAccount.created_at.desc(), MerchantAccount.id.desc())
-            .limit(1)
-        )
-        if role is not None:
-            query = query.where(MerchantAccountUser.role == role.value)
-
-        result = await self.db.execute(query)
-        return result.scalar_one_or_none()
-
-    async def get_merchant_account_id_for_user(
-        self,
-        user_id: UUID,
-        *,
-        role: MerchantUserRole | None = MerchantUserRole.OWNER,
-    ) -> UUID | None:
-        merchant = await self.get_merchant_for_user(user_id, role=role)
-        return merchant.id if merchant else None
+            return result.scalar_one_or_none()
+        return await self.get_owner_merchant_account(user_id)

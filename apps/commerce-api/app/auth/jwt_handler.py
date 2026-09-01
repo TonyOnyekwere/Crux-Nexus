@@ -5,8 +5,11 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.database import get_db
+from app.kernel.errors.responses import error_response
 
 settings = get_settings()
 security = HTTPBearer()
@@ -163,7 +166,11 @@ async def get_current_tenant_id(
 
 async def get_current_tenant_context(
     credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
+    """Verify tenant token claims against active membership in the database."""
+    from app.auth.tenant_context import TenantAuthorizationError, TenantContextResolution
+
     payload = decode_access_token(credentials.credentials)
 
     if payload.get("token_type") != TENANT_TOKEN_TYPE:
@@ -174,12 +181,53 @@ async def get_current_tenant_context(
         )
 
     try:
-        return {
-            "user_id": UUID(payload["sub"]),
-            "tenant_id": UUID(payload["tenant_id"]),
-            "membership_id": UUID(payload["membership_id"]),
-            "role": payload["role"],
-        }
+        resolver = TenantContextResolution(db)
+        return await resolver.resolve_tenant_context_from_jwt(
+            user_id=UUID(payload["sub"]),
+            tenant_id=UUID(payload["tenant_id"]),
+            membership_id=UUID(payload["membership_id"]),
+        )
+    except TenantAuthorizationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error_response(code="TENANT_ACCESS_DENIED", message=str(exc)),
+        )
+    except (KeyError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid tenant token claims",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+async def get_verified_tenant_context(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Verify membership and bind PostgreSQL tenant context for RLS-protected operations."""
+    from app.auth.tenant_context import TenantAuthorizationError, TenantContextResolution
+
+    payload = decode_access_token(credentials.credentials)
+
+    if payload.get("token_type") != TENANT_TOKEN_TYPE:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Tenant-scoped token required for this operation",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        resolver = TenantContextResolution(db)
+        return await resolver.resolve_and_set_tenant_context(
+            user_id=UUID(payload["sub"]),
+            tenant_id=UUID(payload["tenant_id"]),
+            membership_id=UUID(payload["membership_id"]),
+        )
+    except TenantAuthorizationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error_response(code="TENANT_ACCESS_DENIED", message=str(exc)),
+        )
     except (KeyError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

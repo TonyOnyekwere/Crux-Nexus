@@ -10,19 +10,16 @@ from app.contexts.tenant_management.domain.entities import Tenant, TenantStatus
 from app.contexts.tenant_management.domain.membership import MembershipStatus, TenantMembership
 
 
-class AuthorizationError(Exception):
+class TenantAuthorizationError(Exception):
     """Raised when tenant context cannot be verified."""
-    pass
 
 
 class TenantContextResolution:
     """
     Single authority for tenant context resolution with full membership verification.
 
-    This implements the security model:
+    Security model:
     JWT → user → membership → tenant → permission → RLS context
-
-    NOT: frontend tenant_id → RLS context
     """
 
     def __init__(self, db: AsyncSession):
@@ -32,20 +29,21 @@ class TenantContextResolution:
         self,
         user_id: UUID,
         tenant_id: UUID,
+        membership_id: UUID | None = None,
     ) -> dict:
         """Verify tenant context from JWT claims before setting PostgreSQL RLS state."""
         user_result = await self.db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
         if not user:
-            raise AuthorizationError("User not found")
+            raise TenantAuthorizationError("User not found")
 
         tenant_result = await self.db.execute(select(Tenant).where(Tenant.id == tenant_id))
         tenant = tenant_result.scalar_one_or_none()
         if not tenant:
-            raise AuthorizationError("Tenant not found")
+            raise TenantAuthorizationError("Tenant not found")
 
         if tenant.status == TenantStatus.ARCHIVED:
-            raise AuthorizationError("Tenant is archived and no longer accessible")
+            raise TenantAuthorizationError("Tenant is archived and no longer accessible")
 
         membership_result = await self.db.execute(
             select(TenantMembership).where(
@@ -55,9 +53,12 @@ class TenantContextResolution:
         )
         membership = membership_result.scalar_one_or_none()
         if not membership:
-            raise AuthorizationError("No active membership for this tenant")
+            raise TenantAuthorizationError("No active membership for this tenant")
         if getattr(membership, "status", None) != MembershipStatus.ACTIVE.value:
-            raise AuthorizationError("Membership is not active for this tenant")
+            raise TenantAuthorizationError("Membership is not active for this tenant")
+
+        if membership_id is not None and membership.id != membership_id:
+            raise TenantAuthorizationError("Token membership does not match active membership")
 
         return {
             "user_id": user_id,
@@ -67,13 +68,9 @@ class TenantContextResolution:
             "tenant_status": tenant.status,
         }
 
-    async def set_postgres_rls_context(
-        self,
-        tenant_id: UUID,
-    ) -> None:
-        """Set PostgreSQL RLS context only after membership verification succeeds."""
+    async def set_postgres_rls_context(self, tenant_id: UUID) -> None:
         await self.db.execute(
-            text("SET LOCAL app.current_tenant_id = :tenant_id"),
+            text("SELECT set_config('app.current_tenant_id', :tenant_id, true)"),
             {"tenant_id": str(tenant_id)},
         )
 
@@ -81,9 +78,13 @@ class TenantContextResolution:
         self,
         user_id: UUID,
         tenant_id: UUID,
+        membership_id: UUID | None = None,
     ) -> dict:
-        """Complete the verified tenant resolution and RLS chain."""
-        context = await self.resolve_tenant_context_from_jwt(user_id, tenant_id)
+        context = await self.resolve_tenant_context_from_jwt(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            membership_id=membership_id,
+        )
         await self.set_postgres_rls_context(tenant_id)
         return context
 
@@ -115,10 +116,7 @@ async def resolve_tenant_from_jwt(request: Request) -> Optional[TenantContext]:
         payload = decode_access_token(token)
         tenant_id = payload.get("tenant_id")
         if not tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Tenant claim missing from token",
-            )
+            return None
         return TenantContext(tenant_id=UUID(tenant_id), resolution_method="jwt")
     except HTTPException:
         raise
@@ -149,33 +147,16 @@ async def resolve_tenant_from_subdomain(request: Request, db: AsyncSession) -> O
 
 async def get_tenant_context(
     request: Request,
-    db: AsyncSession = None,
+    db: AsyncSession | None = None,
 ) -> Optional[TenantContext]:
-    """Resolve tenant from request using authorized methods only."""
-    authorization = request.headers.get("Authorization")
+    """
+    Middleware-only hint for unauthenticated storefront subdomain resolution.
 
-    if authorization is not None:
-        if not authorization.startswith("Bearer "):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authorization header",
-            )
-
-        try:
-            tenant_context = await resolve_tenant_from_jwt(request)
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate tenant credentials",
-            )
-
-        if tenant_context:
-            return tenant_context
-
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or incomplete tenant token",
-        )
+    JWT tenant authority is NEVER established here. Route dependencies such as
+    get_current_tenant_context() perform membership-verified authorization.
+    """
+    if request.headers.get("Authorization"):
+        return None
 
     if db is None:
         return None
@@ -186,63 +167,9 @@ async def get_tenant_context(
 async def require_tenant_context(
     tenant_context: Optional[TenantContext] = None,
 ) -> TenantContext:
-    """Dependency that requires a tenant context to be present."""
     if tenant_context is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Could not resolve tenant context",
         )
     return tenant_context
-
-
-async def get_verified_tenant_context(
-    request: Request,
-    db: AsyncSession = None,
-) -> dict:
-    """Resolve and verify tenant context with full membership validation."""
-    authorization = request.headers.get("Authorization")
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization required",
-        )
-
-    try:
-        from app.auth.jwt_handler import decode_access_token
-
-        token = authorization.split(" ", 1)[1]
-        payload = decode_access_token(token)
-
-        user_id = payload.get("sub")
-        tenant_id = payload.get("tenant_id")
-
-        if not user_id or not tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token claims",
-            )
-
-        resolver = TenantContextResolution(db)
-        context = await resolver.resolve_and_set_tenant_context(
-            user_id=UUID(user_id),
-            tenant_id=UUID(tenant_id),
-        )
-        return context
-    except AuthorizationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {
-                    "code": "TENANT_ACCESS_DENIED",
-                    "message": str(e),
-                    "details": {},
-                }
-            },
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not verify tenant context",
-        )

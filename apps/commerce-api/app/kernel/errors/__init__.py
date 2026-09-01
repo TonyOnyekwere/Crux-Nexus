@@ -1,5 +1,3 @@
-"""Backward-compatible re-exports. Prefer app.kernel.errors.exceptions."""
-
 from app.kernel.errors.exceptions import (
     AuthorizationError,
     CapacityExceeded,

@@ -1,12 +1,17 @@
-from fastapi import FastAPI, Request, status, HTTPException
+import os
+import uuid
+
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-import os
+
+from app.auth.tenant_context import get_tenant_context
 from app.config import get_settings
 from app.contexts.identity.api.routes import router as identity_router
-from app.contexts.tenant_management.api.routes import router as tenant_router
+from app.contexts.merchant_management.api.routes import router as merchant_router
 from app.contexts.onboarding.api.routes import router as onboarding_router
-from app.middleware import get_tenant_context
+from app.contexts.tenant_management.api.routes import router as tenant_router
+from app.kernel.errors.handlers import register_exception_handlers
 
 settings = get_settings()
 
@@ -15,6 +20,8 @@ app = FastAPI(
     debug=settings.DEBUG,
     version="0.1.0",
 )
+
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,22 +32,25 @@ app.add_middleware(
     allow_origin_regex=r"https://.*\.cruxnexus\.com"
 )
 
-# Include routers
 app.include_router(identity_router)
 app.include_router(tenant_router)
+app.include_router(merchant_router)
 app.include_router(onboarding_router)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request.state.request_id = str(uuid.uuid4())
+    return await call_next(request)
 
 
 @app.middleware("http")
 async def tenant_middleware(request: Request, call_next):
     """
-    Middleware to handle tenant context resolution using proper security functions.
-    
-    SECURITY MODEL:
-    - Only JWT claims and subdomain resolution establish tenant context
-    - Header-based tenant resolution is completely disabled
-    - No X-Tenant-ID header processing for public API requests
-    - Public routes (health, identity) may not have tenant context
+    Middleware subdomain hint only — does NOT establish JWT tenant authority.
+
+    Authenticated tenant access is verified exclusively through route
+    dependencies (get_current_tenant_context / get_verified_tenant_context).
     """
     from sqlalchemy.exc import ProgrammingError
 

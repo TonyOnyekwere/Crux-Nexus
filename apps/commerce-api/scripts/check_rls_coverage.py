@@ -36,7 +36,15 @@ async def check_rls_coverage():
     
     failed_tables = []
     partial_failures = []
-    
+
+    if not TENANT_SCOPED_TABLES:
+        print(
+            "⚠️  VACUOUS PASS: TENANT_SCOPED_TABLES is empty — no tenant-owned commerce "
+            "tables exist yet. RLS proof is NOT established for tenant data-plane tables."
+        )
+        await engine.dispose()
+        sys.exit(0)
+
     async with engine.begin() as conn:
         for table_name in TENANT_SCOPED_TABLES:
             # Check if table exists

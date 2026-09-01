@@ -25,6 +25,7 @@ from app.contexts.billing.domain.storefront_entitlement_allocation import Storef
 from app.contexts.billing.domain.merchant_trial_history import MerchantTrialHistory
 from app.contexts.billing.domain.storefront_staff_capacity import StorefrontStaffCapacity
 from app.contexts.billing.domain.staff_capacity_allocation import StaffCapacityAllocation
+from app.infrastructure.outbox.repository import OutboxEvent
 
 # Establish relationships after all models are imported
 # Note: relationships are established here to avoid circular import issues

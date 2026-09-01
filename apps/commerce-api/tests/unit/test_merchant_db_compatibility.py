@@ -41,34 +41,24 @@ def test_identity_registration_rejects_tenant_id_and_extra_fields():
 
 
 @pytest.mark.asyncio
-async def test_get_merchant_for_user_chooses_latest_owner_account(db_session):
+async def test_require_owner_merchant_account_returns_single_owner(db_session):
     user_id = uuid4()
-    older = MerchantAccount(name="Older Merchant", status="active")
-    newer = MerchantAccount(name="Newer Merchant", status="active")
-    db_session.add_all([older, newer])
+    merchant = MerchantAccount(name="Owner Merchant", status="active")
+    db_session.add(merchant)
     await db_session.flush()
 
-    db_session.add_all(
-        [
-            MerchantAccountUser(
-                merchant_account_id=older.id,
-                user_id=user_id,
-                role=MerchantUserRole.OWNER.value,
-            ),
-            MerchantAccountUser(
-                merchant_account_id=newer.id,
-                user_id=user_id,
-                role=MerchantUserRole.OWNER.value,
-            ),
-        ]
+    db_session.add(
+        MerchantAccountUser(
+            merchant_account_id=merchant.id,
+            user_id=user_id,
+            role=MerchantUserRole.OWNER.value,
+        )
     )
     await db_session.commit()
 
     service = MerchantService(db_session)
-    merchant = await service.get_merchant_for_user(user_id)
-
-    assert merchant is not None
-    assert merchant.id == newer.id
+    account_id = await service.require_owner_merchant_account_id(user_id)
+    assert account_id == merchant.id
 
 
 @pytest.mark.asyncio
