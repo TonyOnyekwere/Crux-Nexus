@@ -33,8 +33,8 @@ class TenantService:
         creates the complete ownership structure atomically.
         """
         capacity_service = CapacityService(self.db)
-        
-        async with self.db.begin():
+
+        async def _create_in_current_transaction() -> Tenant:
             # Check for slug uniqueness
             existing = await self.db.execute(
                 select(Tenant).where(Tenant.slug == slug)
@@ -48,8 +48,13 @@ class TenantService:
                 owner_user_id=owner_user_id,
                 slug=slug,
             )
+            return tenant
 
-        return tenant
+        if self.db.in_transaction():
+            return await _create_in_current_transaction()
+
+        async with self.db.begin():
+            return await _create_in_current_transaction()
 
     async def get_tenant_by_slug(self, slug: str) -> Tenant | None:
         result = await self.db.execute(
@@ -90,7 +95,7 @@ class TenantService:
 
         capacity_service = CapacityService(self.db)
 
-        async with self.db.begin():
+        async def _add_in_current_transaction() -> TenantMembership:
             # Check capacity
             if not await capacity_service.can_add_staff(merchant_account_id, tenant_id):
                 capacity = await capacity_service.get_storefront_staff_capacity(merchant_account_id, tenant_id)
@@ -116,8 +121,13 @@ class TenantService:
             )
             self.db.add(membership)
             await self.db.flush()
+            return membership
 
-        return membership
+        if self.db.in_transaction():
+            return await _add_in_current_transaction()
+
+        async with self.db.begin():
+            return await _add_in_current_transaction()
 
     async def update_tenant_status(
         self, tenant_id: UUID, new_status: TenantStatus
