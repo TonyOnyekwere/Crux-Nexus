@@ -220,14 +220,7 @@ class CapacityService:
         if not await self.can_create_storefront(merchant_account_id):
             capacity = await self.get_storefront_capacity(merchant_account_id)
             active_count = await self.get_active_storefront_count(merchant_account_id)
-            raise CapacityExceededError(
-                "Merchant has reached storefront capacity",
-                {
-                    "capacity": capacity,
-                    "current": active_count,
-                    "available": 0
-                }
-            )
+            raise CapacityExceeded("storefront", capacity, active_count)
         
         # Create tenant
         tenant = Tenant(

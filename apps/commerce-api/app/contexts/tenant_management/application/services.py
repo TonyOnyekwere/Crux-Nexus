@@ -15,6 +15,7 @@ from app.contexts.tenant_management.domain.membership import (
     TenantMembership,
     TenantRole,
 )
+from app.exceptions import CapacityExceeded
 from app.utils.slug import normalize_storefront_slug
 
 
@@ -85,6 +86,19 @@ class TenantService:
         )
         return result.scalar_one_or_none()
 
+    async def validate_tenant_ready_for_access(
+        self,
+        tenant_id: UUID,
+    ) -> Tenant:
+        tenant = await self.get_tenant_by_id(tenant_id)
+        if tenant is None:
+            raise ValueError("Tenant not found")
+        if tenant.status == TenantStatus.ARCHIVED:
+            raise ValueError("This storefront is archived and no longer accessible.")
+        if tenant.status == TenantStatus.PROVISIONING:
+            raise ValueError("This storefront is still provisioning and is not ready for staff access.")
+        return tenant
+
     async def merchant_has_staff_capability(
         self,
         merchant_account_id: UUID,
@@ -148,14 +162,7 @@ class TenantService:
             if not await capacity_service.can_add_staff(merchant_account_id, tenant_id):
                 capacity = await capacity_service.get_storefront_staff_capacity(merchant_account_id, tenant_id)
                 current = await capacity_service.get_current_staff_count(tenant_id)
-                raise CapacityExceededError(
-                    "Storefront has reached staff capacity",
-                    {
-                        "capacity": capacity,
-                        "current": current,
-                        "available": 0
-                    }
-                )
+                raise CapacityExceeded("staff", capacity, current)
 
             # Check for existing membership
             existing = await self.user_has_membership(user_id, tenant_id)

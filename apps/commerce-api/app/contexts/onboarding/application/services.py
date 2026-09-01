@@ -186,10 +186,12 @@ class OnboardingService:
         self.db.add(merchant_subscription)
         await self.db.flush()
 
-        # Create tenant (storefront)
+        # Create tenant (storefront) in the onboarding stage so it is
+        # immediately usable for tenant-scoped access once the merchant has
+        # completed setup, while still preserving the lifecycle guardrails.
         tenant = Tenant(
             slug=normalized_slug,
-            status=TenantStatus.PROVISIONING,
+            status=TenantStatus.ONBOARDING,
         )
         self.db.add(tenant)
         await self.db.flush()

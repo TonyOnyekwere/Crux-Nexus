@@ -106,18 +106,31 @@ async def get_storefront(
             },
         )
 
-    tenant = await service.get_tenant_by_id(tenant_id)
-    if tenant is None:
+    try:
+        tenant = await service.validate_tenant_ready_for_access(tenant_id)
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": {
+                        "code": "TENANT_NOT_FOUND",
+                        "message": message,
+                        "details": {},
+                    }
+                },
+            ) from exc
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "error": {
-                    "code": "TENANT_NOT_FOUND",
-                    "message": "Storefront not found.",
+                    "code": "TENANT_NOT_READY",
+                    "message": message,
                     "details": {},
                 }
             },
-        )
+        ) from exc
 
     return {"data": TenantResponse.model_validate(tenant).model_dump()}
 
@@ -174,14 +187,38 @@ async def invite_staff_member(
 
     try:
         service = TenantService(db)
+        await service.validate_tenant_ready_for_access(tenant_id)
         await service.can_manage_staff_or_raise(merchant_account_id, tenant_id)
     except ValueError as exc:
+        message = str(exc)
+        if "not found" in message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": {
+                        "code": "TENANT_NOT_FOUND",
+                        "message": message,
+                        "details": {},
+                    }
+                },
+            ) from exc
+        if "still provisioning" in message.lower() or "archived" in message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": {
+                        "code": "TENANT_NOT_READY",
+                        "message": message,
+                        "details": {},
+                    }
+                },
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "error": {
                     "code": "PLAN_UPGRADE_REQUIRED",
-                    "message": str(exc),
+                    "message": message,
                     "details": {},
                 }
             },
