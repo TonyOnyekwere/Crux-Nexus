@@ -77,6 +77,26 @@ async def test_onboard_merchant_rejects_duplicate_merchant_for_same_user(db_sess
 
 
 @pytest.mark.asyncio
+async def test_onboard_merchant_normalizes_storefront_slug(db_session):
+    user = User(email="normalized-slug@merchant.com", password_hash="hash")
+    db_session.add(user)
+    await db_session.flush()
+
+    service = OnboardingService(db_session)
+    result = await service.onboard_merchant(
+        user_id=user.id,
+        merchant_name="Slugged Merchant",
+        storefront_slug="  My Store! #2024  ",
+        plan_code="starter",
+    )
+
+    tenant = await db_session.get(__import__('app.contexts.tenant_management.domain.entities', fromlist=['Tenant']).Tenant, result["tenant_id"])
+
+    assert tenant is not None
+    assert tenant.slug == "my-store-2024"
+
+
+@pytest.mark.asyncio
 async def test_onboard_merchant_creates_default_plan_when_seed_missing(db_session):
     user = User(email="new-plan@merchant.com", password_hash="hash")
     db_session.add(user)

@@ -13,6 +13,7 @@ from app.contexts.tenant_management.domain.membership import (
     TenantMembership,
     TenantRole,
 )
+from app.utils.slug import normalize_storefront_slug
 
 
 class TenantService:
@@ -32,12 +33,13 @@ class TenantService:
         the old generic tenant creation. It enforces merchant capacity and
         creates the complete ownership structure atomically.
         """
+        normalized_slug = normalize_storefront_slug(slug)
         capacity_service = CapacityService(self.db)
 
         async def _create_in_current_transaction() -> Tenant:
             # Check for slug uniqueness
             existing = await self.db.execute(
-                select(Tenant).where(Tenant.slug == slug)
+                select(Tenant).where(Tenant.slug == normalized_slug)
             )
             if existing.scalar_one_or_none():
                 raise ValueError("Slug already taken")
@@ -46,7 +48,7 @@ class TenantService:
             tenant = await capacity_service.create_storefront_with_capacity_check(
                 merchant_account_id=merchant_account_id,
                 owner_user_id=owner_user_id,
-                slug=slug,
+                slug=normalized_slug,
             )
             return tenant
 

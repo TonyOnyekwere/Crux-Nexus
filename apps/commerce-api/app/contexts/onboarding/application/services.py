@@ -11,6 +11,7 @@ from app.contexts.tenant_management.domain.entities import Tenant, TenantStatus
 from app.contexts.tenant_management.domain.membership import TenantMembership, TenantRole
 from app.contexts.billing.domain.entities import SubscriptionPlan
 from app.contexts.billing.domain.merchant_subscription import MerchantSubscription, SubscriptionStatus
+from app.utils.slug import normalize_storefront_slug
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +83,7 @@ class OnboardingService:
                 "This user already has a merchant account. Use the existing account to upgrade or renew the plan instead of creating a second one."
             )
 
-        normalized_slug = storefront_slug.strip().lower()
-        if not normalized_slug:
-            raise ValueError("Storefront slug is required")
+        normalized_slug = normalize_storefront_slug(storefront_slug)
 
         existing_tenant = await self.db.execute(
             select(Tenant).where(func.lower(Tenant.slug) == normalized_slug)
