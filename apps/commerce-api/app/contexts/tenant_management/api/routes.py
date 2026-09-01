@@ -15,7 +15,7 @@ from app.contexts.identity.application.services import IdentityService
 from app.contexts.merchant_management.application.services import MerchantService
 from app.contexts.tenant_management.application.services import TenantService
 from app.database import get_db
-from app.exceptions import CapacityExceeded, CruxNexusError
+from app.exceptions import CapacityExceededError, CruxNexusError
 
 from .schemas import (
     StaffInviteRequest,
@@ -61,7 +61,7 @@ async def create_storefront(
             slug=payload.slug,
         )
         return {"data": TenantResponse.model_validate(tenant).model_dump()}
-    except CapacityExceeded as exc:
+    except CapacityExceededError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},
@@ -254,7 +254,7 @@ async def invite_staff_member(
                 "role": membership.role.value,
             }
         }
-    except CapacityExceeded as exc:
+    except CapacityExceededError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": {"code": exc.code, "message": exc.message, "details": exc.details}},

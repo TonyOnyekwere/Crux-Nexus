@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.database import get_db
+from app.auth.tenant_context import TenantContextResolution, AuthorizationError
 
 
 class TenantContext:
@@ -92,3 +93,67 @@ async def require_tenant_context(
             detail="Could not resolve tenant context"
         )
     return tenant_context
+
+
+async def get_verified_tenant_context(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """
+    Resolve and verify tenant context with full membership validation.
+    
+    This is the authoritative method for tenant-scoped operations.
+    It performs:
+    1. JWT decoding
+    2. User verification
+    3. Tenant verification
+    4. Membership verification
+    5. RLS context setting
+    
+    Only after all verifications pass does it set PostgreSQL RLS context.
+    """
+    authorization = request.headers.get("Authorization")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization required"
+        )
+    
+    try:
+        from app.auth.jwt_handler import decode_access_token
+        token = authorization.split(" ")[1]
+        payload = decode_access_token(token)
+        
+        user_id = payload.get("sub")
+        tenant_id = payload.get("tenant_id")
+        
+        if not user_id or not tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token claims"
+            )
+        
+        resolver = TenantContextResolution(db)
+        context = await resolver.resolve_and_set_tenant_context(
+            user_id=UUID(user_id),
+            tenant_id=UUID(tenant_id),
+        )
+        
+        return context
+        
+    except AuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "TENANT_ACCESS_DENIED",
+                    "message": str(e),
+                    "details": {}
+                }
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not verify tenant context"
+        )

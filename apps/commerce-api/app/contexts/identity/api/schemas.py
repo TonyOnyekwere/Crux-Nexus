@@ -8,6 +8,8 @@ from app.contexts.tenant_management.domain.membership import TenantRole
 
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
     password: str | None = None
     auth_provider: AuthProvider = AuthProvider.PASSWORD

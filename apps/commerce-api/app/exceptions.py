@@ -1,4 +1,5 @@
 class CruxNexusError(Exception):
+    """Base exception for all CruxNexus domain errors."""
     code: str
 
     def __init__(self, code: str, message: str, details: dict | None = None):
@@ -8,13 +9,20 @@ class CruxNexusError(Exception):
         super().__init__(message)
 
 
-class CapacityExceeded(CruxNexusError):
+class CapacityExceededError(CruxNexusError):
+    """Raised when merchant exceeds their capacity limits."""
+    code = "CAPACITY_EXCEEDED"
+
     def __init__(self, resource: str, capacity: int, current: int):
         super().__init__(
             code=f"{resource.upper()}_CAPACITY_EXCEEDED",
             message=f"This merchant has reached its {resource} capacity.",
             details={"capacity": capacity, "current": current},
         )
+
+
+# Backward-compatible alias for older imports during the architecture transition
+CapacityExceeded = CapacityExceededError
 
 
 class NotFoundError(CruxNexusError):

@@ -8,7 +8,7 @@ from app.contexts.merchant_management.domain.entities import MerchantAccount
 from app.contexts.merchant_management.domain.merchant_account_user import MerchantAccountUser, MerchantUserRole
 from app.contexts.merchant_management.domain.merchant_account_tenant import MerchantAccountTenant
 from app.contexts.tenant_management.domain.entities import Tenant, TenantStatus
-from app.contexts.tenant_management.domain.membership import TenantMembership, TenantRole
+from app.contexts.tenant_management.domain.membership import TenantMembership, TenantRole, MembershipStatus
 from app.contexts.billing.domain.entities import SubscriptionPlan
 from app.contexts.billing.domain.merchant_subscription import MerchantSubscription, SubscriptionStatus
 from app.utils.slug import normalize_storefront_slug
@@ -209,6 +209,7 @@ class OnboardingService:
             tenant_id=tenant.id,
             user_id=user_id,
             role=TenantRole.OWNER.value,
+            status=MembershipStatus.ACTIVE.value,
         )
         self.db.add(tenant_membership)
         await self.db.flush()

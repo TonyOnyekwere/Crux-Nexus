@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import Column, DateTime, String, ForeignKey
+from sqlalchemy import Column, DateTime, String, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
@@ -15,6 +15,9 @@ class MerchantAccountTenant(Base):
     This is separate from tenant_memberships (authorization/access).
     """
     __tablename__ = "merchant_account_tenants"
+    __table_args__ = (
+        UniqueConstraint("merchant_account_id", "tenant_id", name="uq_merchant_tenant"),
+    )
 
     id = Column(
         UUID(as_uuid=True),

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import enum
 import uuid
 
-from sqlalchemy import Column, DateTime, String, ForeignKey
+from sqlalchemy import Column, DateTime, String, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
@@ -24,6 +24,9 @@ class MerchantAccountUser(Base):
     This is separate from tenant membership (which answers: Who can access this storefront?).
     """
     __tablename__ = "merchant_account_users"
+    __table_args__ = (
+        UniqueConstraint("merchant_account_id", "user_id", name="uq_merchant_user"),
+    )
 
     id = Column(
         UUID(as_uuid=True),
@@ -46,7 +49,7 @@ class MerchantAccountUser(Base):
     role = Column(
         String(50),
         nullable=False,
-        default=MerchantUserRole.ADMIN.value,
+        default=MerchantUserRole.OWNER.value,
     )
 
     created_at = Column(

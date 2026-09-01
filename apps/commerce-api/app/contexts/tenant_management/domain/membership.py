@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import enum
 import uuid
 
-from sqlalchemy import Column, DateTime, String, ForeignKey
+from sqlalchemy import Column, DateTime, String, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
@@ -14,6 +14,13 @@ class TenantRole(str, enum.Enum):
     STAFF = "staff"
 
 
+class MembershipStatus(str, enum.Enum):
+    ACTIVE = "active"
+    INVITED = "invited"
+    REMOVED = "removed"
+    SUSPENDED = "suspended"
+
+
 class TenantMembership(Base):
     """Authorization/access relationship between User and Tenant (Storefront).
     
@@ -22,6 +29,9 @@ class TenantMembership(Base):
     A user can belong to multiple tenants through multiple memberships.
     """
     __tablename__ = "tenant_memberships"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "user_id", name="uq_tenant_user_membership"),
+    )
 
     id = Column(
         UUID(as_uuid=True),
@@ -46,9 +56,22 @@ class TenantMembership(Base):
         nullable=False,
     )
 
+    status = Column(
+        String(50),
+        nullable=False,
+        default=MembershipStatus.ACTIVE.value,
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
@@ -56,5 +79,10 @@ class TenantMembership(Base):
     # - UNIQUE(tenant_id, user_id) enforced by database (one membership per user per tenant)
     # - ON DELETE CASCADE ensures cleanup
     # - role determines access level (OWNER, MANAGER, STAFF)
+    # - status determines membership lifecycle (ACTIVE, INVITED, REMOVED, SUSPENDED)
     # - This is authorization/access, not commercial ownership
     # - OWNER does not consume staff capacity
+    # - Only ACTIVE memberships grant access
+    # - INVITED memberships are pending acceptance
+    # - REMOVED memberships cannot access but history is preserved
+    # - SUSPENDED memberships temporarily cannot access

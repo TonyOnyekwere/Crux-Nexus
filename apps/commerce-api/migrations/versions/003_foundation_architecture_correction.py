@@ -53,7 +53,7 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("merchant_account_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("merchant_accounts.id", ondelete="CASCADE"), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("role", sa.String(50), nullable=False),
+        sa.Column("role", sa.String(50), nullable=False, server_default="'owner'"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     
@@ -134,7 +134,9 @@ def upgrade() -> None:
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("role", sa.String(50), nullable=False),
+        sa.Column("status", sa.String(50), nullable=False, server_default="'active'"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
     
     # Create unique constraint on (tenant_id, user_id)
@@ -198,12 +200,14 @@ def upgrade() -> None:
     # Create memberships for users who had tenant_id assigned
     op.execute(
         """
-        INSERT INTO tenant_memberships (id, tenant_id, user_id, role, created_at)
+        INSERT INTO tenant_memberships (id, tenant_id, user_id, role, status, created_at, updated_at)
         SELECT 
             gen_random_uuid(),
             u.tenant_id,
             u.id,
             'owner',
+            'active',
+            CURRENT_TIMESTAMP,
             CURRENT_TIMESTAMP
         FROM users u
         WHERE u.tenant_id IS NOT NULL

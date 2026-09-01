@@ -9,19 +9,11 @@ from app.contexts.billing.domain.merchant_subscription import MerchantSubscripti
 from app.contexts.merchant_management.domain.entities import MerchantAccount
 from app.contexts.merchant_management.domain.merchant_account_tenant import MerchantAccountTenant
 from app.contexts.tenant_management.domain.entities import Tenant, TenantStatus
-from app.contexts.tenant_management.domain.membership import TenantMembership, TenantRole
+from app.contexts.tenant_management.domain.membership import TenantMembership, TenantRole, MembershipStatus
+from app.exceptions import CapacityExceededError
+from app.contexts.billing.application.entitlement_allocation import EntitlementAllocationService
 
 logger = logging.getLogger(__name__)
-
-
-class CapacityExceededError(Exception):
-    """Raised when merchant exceeds their capacity limits."""
-    code = "CAPACITY_EXCEEDED"
-    
-    def __init__(self, message: str, details: dict):
-        self.message = message
-        self.details = details
-        super().__init__(message)
 
 
 class CapacityService:
@@ -122,10 +114,19 @@ class CapacityService:
         tenant_id: UUID,
     ) -> int:
         """Calculate effective staff capacity for a specific storefront.
-        
+
         Formula: plan.base_staff_per_storefront + allocated_extra_staff
         Owner does NOT consume staff capacity.
         """
+        ownership_result = await self.db.execute(
+            select(MerchantAccountTenant).where(
+                MerchantAccountTenant.merchant_account_id == merchant_account_id,
+                MerchantAccountTenant.tenant_id == tenant_id,
+            )
+        )
+        if ownership_result.scalar_one_or_none() is None:
+            raise ValueError("Tenant is not owned by this merchant account")
+
         # Get merchant's active subscription
         subscription_result = await self.db.execute(
             select(MerchantSubscription).where(
@@ -149,8 +150,8 @@ class CapacityService:
             raise ValueError("Subscription plan not found")
         
         # Get allocated extra staff for this specific storefront
-        # TODO: Implement when storefront_entitlement_allocations table is fully integrated
-        allocated_extra = 0
+        allocation_service = EntitlementAllocationService(self.db)
+        allocated_extra = await allocation_service.get_storefront_allocated_staff(tenant_id)
         
         return plan.base_staff_per_storefront + allocated_extra
 
@@ -177,6 +178,15 @@ class CapacityService:
         tenant_id: UUID,
     ) -> bool:
         """Check if storefront can add another staff member."""
+        ownership_result = await self.db.execute(
+            select(MerchantAccountTenant).where(
+                MerchantAccountTenant.merchant_account_id == merchant_account_id,
+                MerchantAccountTenant.tenant_id == tenant_id,
+            )
+        )
+        if ownership_result.scalar_one_or_none() is None:
+            raise ValueError("Tenant is not owned by this merchant account")
+
         capacity = await self.get_storefront_staff_capacity(merchant_account_id, tenant_id)
         current = await self.get_current_staff_count(tenant_id)
         return current < capacity
@@ -220,7 +230,7 @@ class CapacityService:
         if not await self.can_create_storefront(merchant_account_id):
             capacity = await self.get_storefront_capacity(merchant_account_id)
             active_count = await self.get_active_storefront_count(merchant_account_id)
-            raise CapacityExceeded("storefront", capacity, active_count)
+            raise CapacityExceededError("storefront", capacity, active_count)
         
         # Create tenant
         tenant = Tenant(
@@ -243,6 +253,7 @@ class CapacityService:
             tenant_id=tenant.id,
             user_id=owner_user_id,
             role=TenantRole.OWNER.value,
+            status=MembershipStatus.ACTIVE.value,
         )
         self.db.add(membership)
         await self.db.flush()

@@ -150,6 +150,16 @@ async def switch_tenant(
     db: AsyncSession = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
+    """
+    Switch tenant context with full membership verification.
+    
+    This endpoint verifies:
+    1. User has active membership to the requested tenant
+    2. Tenant is not archived
+    3. Membership has a valid role
+    
+    Only then does it issue a tenant-scoped token.
+    """
     result = await db.execute(
         select(TenantMembership, Tenant)
         .join(Tenant, Tenant.id == TenantMembership.tenant_id)

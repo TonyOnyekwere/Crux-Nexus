@@ -6,16 +6,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.billing.domain.entities import SubscriptionPlan
 from app.contexts.billing.domain.merchant_subscription import MerchantSubscription, SubscriptionStatus
-from app.contexts.merchant_management.application.capacity import CapacityService, CapacityExceededError
+from app.contexts.merchant_management.application.capacity import CapacityService
 from app.contexts.merchant_management.domain.merchant_account_tenant import (
     MerchantAccountTenant,
+)
+from app.contexts.merchant_management.domain.merchant_account_user import (
+    MerchantAccountUser,
 )
 from app.contexts.tenant_management.domain.entities import Tenant, TenantStatus
 from app.contexts.tenant_management.domain.membership import (
     TenantMembership,
     TenantRole,
+    MembershipStatus,
 )
-from app.exceptions import CapacityExceeded
+from app.exceptions import CapacityExceededError
 from app.utils.slug import normalize_storefront_slug
 
 
@@ -40,6 +44,18 @@ class TenantService:
         capacity_service = CapacityService(self.db)
 
         async def _create_in_current_transaction() -> Tenant:
+            # The merchant_account_id must be authorized for the owner user before any
+            # storefront creation can proceed. This prevents arbitrary merchant context
+            # drift and ensures merchant-scoped lifecycle enforcement.
+            user_membership_result = await self.db.execute(
+                select(MerchantAccountUser).where(
+                    MerchantAccountUser.merchant_account_id == merchant_account_id,
+                    MerchantAccountUser.user_id == owner_user_id,
+                )
+            )
+            if user_membership_result.scalar_one_or_none() is None:
+                raise ValueError("Owner is not authorized for this merchant account")
+
             # Check for slug uniqueness
             existing = await self.db.execute(
                 select(Tenant).where(Tenant.slug == normalized_slug)
@@ -82,6 +98,7 @@ class TenantService:
             select(TenantMembership).where(
                 TenantMembership.user_id == user_id,
                 TenantMembership.tenant_id == tenant_id,
+                TenantMembership.status == MembershipStatus.ACTIVE.value,
             )
         )
         return result.scalar_one_or_none()
@@ -158,11 +175,22 @@ class TenantService:
         capacity_service = CapacityService(self.db)
 
         async def _add_in_current_transaction() -> TenantMembership:
+            ownership_result = await self.db.execute(
+                select(MerchantAccountTenant)
+                .where(
+                    MerchantAccountTenant.merchant_account_id == merchant_account_id,
+                    MerchantAccountTenant.tenant_id == tenant_id,
+                )
+                .with_for_update()
+            )
+            if ownership_result.scalar_one_or_none() is None:
+                raise ValueError("Tenant is not owned by this merchant account")
+
             # Check capacity
             if not await capacity_service.can_add_staff(merchant_account_id, tenant_id):
                 capacity = await capacity_service.get_storefront_staff_capacity(merchant_account_id, tenant_id)
                 current = await capacity_service.get_current_staff_count(tenant_id)
-                raise CapacityExceeded("staff", capacity, current)
+                raise CapacityExceededError("staff", capacity, current)
 
             # Check for existing membership
             existing = await self.user_has_membership(user_id, tenant_id)
@@ -173,6 +201,7 @@ class TenantService:
                 tenant_id=tenant_id,
                 user_id=user_id,
                 role=role.value,
+                status=MembershipStatus.ACTIVE.value,
             )
             self.db.add(membership)
             await self.db.flush()

@@ -12,7 +12,9 @@ from app.config import get_settings
 # CRX-P0-009 P0-5: Use CI environment variables, not hardcoded localhost
 # Tests run against CI-managed ephemeral infrastructure, not local development database
 TEST_DATABASE_URL = os.environ.get("DATABASE_URL")
-if not TEST_DATABASE_URL:
+if TEST_DATABASE_URL:
+    TEST_DATABASE_URL = normalize_async_database_url(TEST_DATABASE_URL)
+else:
     # Fallback for CI environment variable not set (should not happen in CI)
     settings = get_settings()
     TEST_DATABASE_URL = normalize_async_database_url(settings.DATABASE_URL)
