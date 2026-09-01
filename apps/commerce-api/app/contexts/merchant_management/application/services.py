@@ -20,6 +20,14 @@ class MerchantService:
         *,
         role: MerchantUserRole | None = MerchantUserRole.OWNER,
     ) -> MerchantAccount | None:
+        """Return the most recently created merchant for a user.
+
+        The data model allows a user to be linked to multiple merchant accounts
+        over time, especially during onboarding retries or historical repairs.
+        In those cases, a strict scalar-one lookup raises MultipleResultsFound.
+        The API is expected to operate on the user's active merchant context, so
+        we pick the newest merchant as the authoritative account.
+        """
         query = (
             select(MerchantAccount)
             .join(
@@ -27,9 +35,11 @@ class MerchantService:
                 MerchantAccountUser.merchant_account_id == MerchantAccount.id,
             )
             .where(MerchantAccountUser.user_id == user_id)
+            .order_by(MerchantAccount.created_at.desc(), MerchantAccount.id.desc())
+            .limit(1)
         )
         if role is not None:
-            query = query.where(MerchantAccountUser.role == role)
+            query = query.where(MerchantAccountUser.role == role.value)
 
         result = await self.db.execute(query)
         return result.scalar_one_or_none()

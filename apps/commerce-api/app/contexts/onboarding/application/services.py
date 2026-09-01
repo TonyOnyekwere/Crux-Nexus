@@ -67,6 +67,21 @@ class OnboardingService:
         if not user:
             raise ValueError("User not found")
 
+        existing_merchant_result = await self.db.execute(
+            select(MerchantAccount)
+            .join(
+                MerchantAccountUser,
+                MerchantAccountUser.merchant_account_id == MerchantAccount.id,
+            )
+            .where(MerchantAccountUser.user_id == user_id)
+            .order_by(MerchantAccount.created_at.desc(), MerchantAccount.id.desc())
+            .limit(1)
+        )
+        if existing_merchant_result.scalar_one_or_none() is not None:
+            raise ValueError(
+                "This user already has a merchant account. Use the existing account to upgrade or renew the plan instead of creating a second one."
+            )
+
         normalized_slug = storefront_slug.strip().lower()
         if not normalized_slug:
             raise ValueError("Storefront slug is required")
