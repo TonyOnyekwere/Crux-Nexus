@@ -9,6 +9,7 @@ from app.auth.authorization import Permission, has_permission
 from app.auth.jwt_handler import (
     get_current_merchant_context,
     get_current_tenant_context,
+    get_current_user_id,
 )
 from app.contexts.identity.application.services import IdentityService
 from app.contexts.merchant_management.application.services import MerchantService
