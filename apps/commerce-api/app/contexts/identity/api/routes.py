@@ -13,10 +13,7 @@ from app.auth.jwt_handler import (
 )
 from app.contexts.identity.application.services import IdentityService
 from app.contexts.tenant_management.domain.entities import Tenant, TenantStatus
-from app.contexts.tenant_management.domain.membership import (
-    MembershipStatus,
-    TenantMembership,
-)
+from app.contexts.tenant_management.domain.membership import TenantMembership
 from app.database import get_db
 
 from .schemas import (
@@ -132,7 +129,6 @@ async def list_accessible_storefronts(
         .join(Tenant, Tenant.id == TenantMembership.tenant_id)
         .where(
             TenantMembership.user_id == user_id,
-            TenantMembership.status == MembershipStatus.ACTIVE,
             Tenant.status != TenantStatus.ARCHIVED,
         )
     )
@@ -160,7 +156,6 @@ async def switch_tenant(
         .where(
             TenantMembership.user_id == user_id,
             TenantMembership.tenant_id == payload.tenant_id,
-            TenantMembership.status == MembershipStatus.ACTIVE,
         )
     )
     row = result.one_or_none()
@@ -193,7 +188,7 @@ async def switch_tenant(
         user_id=user_id,
         tenant_id=tenant.id,
         membership_id=membership.id,
-        role=membership.role.value,
+        role=membership.role,
     )
     return {
         "data": TenantAccessTokenResponse(
