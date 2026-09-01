@@ -172,6 +172,21 @@ async def invite_staff_member(
             },
         )
 
+    try:
+        service = TenantService(db)
+        await service.can_manage_staff_or_raise(merchant_account_id, tenant_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "PLAN_UPGRADE_REQUIRED",
+                    "message": str(exc),
+                    "details": {},
+                }
+            },
+        ) from exc
+
     identity_service = IdentityService(db)
     invitee = await identity_service.get_user_by_email(payload.email)
     if invitee is None:

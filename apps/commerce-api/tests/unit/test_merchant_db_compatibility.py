@@ -3,11 +3,16 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import String
 
+from app.contexts.billing.domain.entities import SubscriptionPlan
+from app.contexts.billing.domain.merchant_subscription import MerchantSubscription, SubscriptionStatus
 from app.contexts.identity.domain.entities import User
 from app.contexts.merchant_management.application.services import MerchantService
 from app.contexts.merchant_management.domain.entities import MerchantAccount
 from app.contexts.merchant_management.domain.merchant_account_user import MerchantAccountUser, MerchantUserRole
 from app.contexts.onboarding.application.services import OnboardingService
+from app.contexts.tenant_management.application.services import TenantService
+from app.contexts.tenant_management.domain.entities import Tenant, TenantStatus
+from app.contexts.tenant_management.domain.membership import TenantMembership, TenantRole
 
 
 def test_merchant_status_and_role_columns_are_string_compatible():
@@ -94,6 +99,65 @@ async def test_onboard_merchant_normalizes_storefront_slug(db_session):
 
     assert tenant is not None
     assert tenant.slug == "my-store-2024"
+
+
+@pytest.mark.asyncio
+async def test_starter_plan_block_staff_management_with_clear_upgrade_message(db_session):
+    user = User(email="starter-no-staff@merchant.com", password_hash="hash")
+    db_session.add(user)
+    await db_session.flush()
+
+    merchant = MerchantAccount(name="Starter Merchant", status="active")
+    db_session.add(merchant)
+    await db_session.flush()
+
+    db_session.add(
+        MerchantAccountUser(
+            merchant_account_id=merchant.id,
+            user_id=user.id,
+            role=MerchantUserRole.OWNER.value,
+        )
+    )
+
+    starter_plan = SubscriptionPlan(
+        code="starter",
+        name="Starter",
+        included_storefronts=1,
+        base_staff_per_storefront=0,
+        max_extra_storefronts=0,
+        max_extra_staff=0,
+        active=True,
+    )
+    db_session.add(starter_plan)
+    await db_session.flush()
+
+    db_session.add(
+        MerchantSubscription(
+            merchant_account_id=merchant.id,
+            subscription_plan_id=starter_plan.id,
+            status=SubscriptionStatus.ACTIVE.value,
+        )
+    )
+
+    tenant = Tenant(slug="starter-storefront", status=TenantStatus.ACTIVE)
+    db_session.add(tenant)
+    await db_session.flush()
+
+    db_session.add(
+        TenantMembership(
+            tenant_id=tenant.id,
+            user_id=user.id,
+            role=TenantRole.OWNER.value,
+        )
+    )
+    await db_session.commit()
+
+    service = TenantService(db_session)
+
+    assert await service.merchant_has_staff_capability(merchant.id, tenant.id) is False
+
+    with pytest.raises(ValueError, match="Business and Enterprise"):
+        await service.can_manage_staff_or_raise(merchant.id, tenant.id)
 
 
 @pytest.mark.asyncio

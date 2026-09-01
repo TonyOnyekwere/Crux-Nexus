@@ -4,6 +4,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.contexts.billing.domain.entities import SubscriptionPlan
+from app.contexts.billing.domain.merchant_subscription import MerchantSubscription, SubscriptionStatus
 from app.contexts.merchant_management.application.capacity import CapacityService, CapacityExceededError
 from app.contexts.merchant_management.domain.merchant_account_tenant import (
     MerchantAccountTenant,
@@ -82,6 +84,50 @@ class TenantService:
             )
         )
         return result.scalar_one_or_none()
+
+    async def merchant_has_staff_capability(
+        self,
+        merchant_account_id: UUID,
+        tenant_id: UUID,
+    ) -> bool:
+        """Return true only when the merchant plan explicitly supports staff features."""
+        result = await self.db.execute(
+            select(MerchantSubscription).where(
+                MerchantSubscription.merchant_account_id == merchant_account_id,
+                MerchantSubscription.status.in_([
+                    SubscriptionStatus.TRIALING.value,
+                    SubscriptionStatus.ACTIVE.value,
+                ]),
+            )
+        )
+        subscription = result.scalar_one_or_none()
+        if subscription is None:
+            return False
+
+        plan_result = await self.db.execute(
+            select(SubscriptionPlan).where(
+                SubscriptionPlan.id == subscription.subscription_plan_id,
+                SubscriptionPlan.active.is_(True),
+            )
+        )
+        plan = plan_result.scalar_one_or_none()
+        if plan is None:
+            return False
+
+        return plan.base_staff_per_storefront > 0
+
+    async def can_manage_staff_or_raise(
+        self,
+        merchant_account_id: UUID,
+        tenant_id: UUID,
+    ) -> bool:
+        """Raise a plan-level validation error for starter-tier merchants."""
+        if not await self.merchant_has_staff_capability(merchant_account_id, tenant_id):
+            raise ValueError(
+                "Staff management is available on Business and Enterprise plans only. "
+                "Upgrade your subscription to unlock team access."
+            )
+        return True
 
     async def add_staff_member(
         self,
