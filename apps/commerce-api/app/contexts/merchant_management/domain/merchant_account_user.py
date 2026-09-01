@@ -13,6 +13,10 @@ class MerchantUserRole(str, enum.Enum):
     ADMIN = "admin"
 
 
+# Backward-compatible alias used by older imports during the merchant domain transition.
+MerchantAccountRole = MerchantUserRole
+
+
 class MerchantAccountUser(Base):
     """Represents the relationship between a User and a Merchant Account.
     

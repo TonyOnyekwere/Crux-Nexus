@@ -3,10 +3,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.contexts.merchant_management.domain.entities import (
-    MerchantAccount,
-    MerchantAccountRole,
+from app.contexts.merchant_management.domain.entities import MerchantAccount
+from app.contexts.merchant_management.domain.merchant_account_user import (
     MerchantAccountUser,
+    MerchantUserRole,
 )
 
 
@@ -18,7 +18,7 @@ class MerchantService:
         self,
         user_id: UUID,
         *,
-        role: MerchantAccountRole | None = MerchantAccountRole.OWNER,
+        role: MerchantUserRole | None = MerchantUserRole.OWNER,
     ) -> MerchantAccount | None:
         query = (
             select(MerchantAccount)
@@ -38,7 +38,7 @@ class MerchantService:
         self,
         user_id: UUID,
         *,
-        role: MerchantAccountRole | None = MerchantAccountRole.OWNER,
+        role: MerchantUserRole | None = MerchantUserRole.OWNER,
     ) -> UUID | None:
         merchant = await self.get_merchant_for_user(user_id, role=role)
         return merchant.id if merchant else None
