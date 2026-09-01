@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import enum
 import uuid
 
-from sqlalchemy import Column, DateTime, Enum as SQLEnum, String
+from sqlalchemy import Column, DateTime, String
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
@@ -30,15 +30,9 @@ class MerchantAccount(Base):
     )
 
     status = Column(
-        SQLEnum(
-            MerchantStatus,
-            name="merchantstatus",
-            values_callable=lambda enum_cls: [
-                member.value for member in enum_cls
-            ],
-        ),
+        String(50),
         nullable=False,
-        default=MerchantStatus.ACTIVE,
+        default=MerchantStatus.ACTIVE.value,
     )
 
     created_at = Column(

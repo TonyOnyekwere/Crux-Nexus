@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Enum as SQLEnum, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime, timezone
 import enum
@@ -33,12 +33,8 @@ class MerchantAccount(Base):
     business_name = Column(String, nullable=False, unique=True)
     contact_email = Column(String, nullable=False, unique=True)
     status = Column(
-        SQLEnum(
-            MerchantStatus,
-            name="merchantstatus",
-            values_callable=lambda enum_cls: [member.value for member in enum_cls],
-        ),
-        default=MerchantStatus.PROVISIONING,
+        String(50),
+        default=MerchantStatus.PROVISIONING.value,
         nullable=False,
     )
     created_at = Column(

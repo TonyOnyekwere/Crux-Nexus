@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import enum
 import uuid
 
-from sqlalchemy import Column, DateTime, Enum as SQLEnum, String, ForeignKey
+from sqlalchemy import Column, DateTime, String, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
@@ -44,15 +44,9 @@ class MerchantAccountUser(Base):
     )
 
     role = Column(
-        SQLEnum(
-            MerchantUserRole,
-            name="merchantuserrole",
-            values_callable=lambda enum_cls: [
-                member.value for member in enum_cls
-            ],
-        ),
+        String(50),
         nullable=False,
-        default=MerchantUserRole.ADMIN,
+        default=MerchantUserRole.ADMIN.value,
     )
 
     created_at = Column(
