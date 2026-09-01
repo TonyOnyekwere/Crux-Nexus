@@ -44,3 +44,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
 def has_permission(role: str, permission: Permission) -> bool:
     """Check if a role has a specific permission."""
     return permission in ROLE_PERMISSIONS.get(role, set())
+
+
+# Backward-compatible alias for older imports during the architecture transition.
+role_has_permission = has_permission

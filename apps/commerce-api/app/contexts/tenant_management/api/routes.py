@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.authorization import Permission, role_has_permission
+from app.auth.authorization import Permission, has_permission
 from app.auth.jwt_handler import get_current_tenant_context, get_current_user_id
 from app.contexts.identity.application.services import IdentityService
 from app.contexts.merchant_management.application.services import MerchantService
@@ -138,7 +138,7 @@ async def invite_staff_member(
     from app.contexts.tenant_management.domain.membership import TenantRole
 
     inviter_role = TenantRole(tenant_context["role"])
-    if not role_has_permission(inviter_role, Permission.MANAGE_STAFF):
+    if not has_permission(inviter_role, Permission.MANAGE_STAFF):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
