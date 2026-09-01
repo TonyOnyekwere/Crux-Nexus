@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from uuid import UUID
 import logging
 
@@ -67,11 +67,13 @@ class OnboardingService:
         if not user:
             raise ValueError("User not found")
 
-        # Resolve subscription plan
+        # Resolve subscription plan in a case-insensitive way to match the
+        # seeded values ('starter', 'business', 'enterprise') and the API contract.
+        normalized_plan_code = plan_code.strip().lower()
         plan_result = await self.db.execute(
             select(SubscriptionPlan).where(
-                SubscriptionPlan.code == plan_code,
-                SubscriptionPlan.active == True
+                func.lower(SubscriptionPlan.code) == normalized_plan_code,
+                SubscriptionPlan.active.is_(True),
             )
         )
         plan = plan_result.scalar_one_or_none()
