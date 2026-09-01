@@ -3,7 +3,8 @@ from sqlalchemy import select, func, text
 from uuid import UUID
 import logging
 
-from app.contexts.billing.domain.entities import SubscriptionPlan, MerchantEntitlement, EntitlementStatus
+from app.contexts.billing.domain.entities import SubscriptionPlan
+from app.contexts.billing.domain.merchant_entitlement import MerchantEntitlement, EntitlementStatus
 from app.contexts.billing.domain.merchant_subscription import MerchantSubscription, SubscriptionStatus
 from app.contexts.merchant_management.domain.entities import MerchantAccount
 from app.contexts.merchant_management.domain.merchant_account_tenant import MerchantAccountTenant

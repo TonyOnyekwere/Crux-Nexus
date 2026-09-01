@@ -7,6 +7,8 @@ from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
 
+from .merchant_entitlement import EntitlementStatus, MerchantEntitlement
+
 
 class SubscriptionPlan(Base):
     """Platform-defined subscription plan configuration.
