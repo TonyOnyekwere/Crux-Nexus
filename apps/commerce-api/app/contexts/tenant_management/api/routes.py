@@ -6,7 +6,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.authorization import Permission, has_permission
-from app.auth.jwt_handler import get_current_tenant_context, get_current_user_id
+from app.auth.jwt_handler import (
+    get_current_merchant_context,
+    get_current_tenant_context,
+)
 from app.contexts.identity.application.services import IdentityService
 from app.contexts.merchant_management.application.services import MerchantService
 from app.contexts.tenant_management.application.services import TenantService
@@ -29,8 +32,10 @@ router = APIRouter(prefix="/api/v1", tags=["storefronts"])
 async def create_storefront(
     payload: StorefrontCreate,
     db: AsyncSession = Depends(get_db),
-    user_id: UUID = Depends(get_current_user_id),
+    merchant_context: dict = Depends(get_current_merchant_context),
 ):
+    user_id = merchant_context["user_id"]
+
     merchant_service = MerchantService(db)
     merchant_account_id = await merchant_service.get_merchant_account_id_for_user(
         user_id

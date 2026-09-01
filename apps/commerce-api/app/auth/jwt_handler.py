@@ -105,6 +105,32 @@ async def get_current_user_id(
         )
 
 
+async def get_current_merchant_context(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    payload = decode_access_token(credentials.credentials)
+
+    if payload.get("token_type") != GLOBAL_TOKEN_TYPE:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Merchant-scoped access token required for this operation",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        return {
+            "user_id": UUID(payload["sub"]),
+            "email": payload.get("email"),
+            "token_type": payload["token_type"],
+        }
+    except (KeyError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid merchant token claims",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 async def get_current_tenant_id(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> UUID:
