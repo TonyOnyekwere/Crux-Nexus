@@ -26,6 +26,17 @@ class MerchantTrialHistory(Base):
         nullable=False,
     )
 
+    # Direct reference to the subscription this trial belongs to. Nullable
+    # for any pre-existing row from before this column was added (see
+    # migration 011) — application code always populates it going forward,
+    # and it is what expiration/lookup code should match on rather than the
+    # older (merchant_account_id, subscription_plan_id, status) correlation.
+    subscription_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("merchant_subscriptions.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
     status = Column(String(50), nullable=False, default="trialing")
 
     started_at = Column(

@@ -154,6 +154,7 @@ async def test_starter_plan_block_staff_management_with_clear_upgrade_message(db
         base_staff_per_storefront=0,
         max_extra_storefronts=0,
         max_extra_staff=0,
+        trial_days=3,
         active=True,
     )
     db_session.add(starter_plan)
@@ -213,6 +214,7 @@ async def test_storefront_creation_raises_capacity_error_when_plan_limit_is_reac
         base_staff_per_storefront=0,
         max_extra_storefronts=0,
         max_extra_staff=0,
+        trial_days=3,
         active=True,
     )
     db_session.add(starter_plan)
@@ -345,6 +347,7 @@ async def test_concurrent_storefront_creation_respects_capacity_limit(db_session
         base_staff_per_storefront=0,
         max_extra_storefronts=0,
         max_extra_staff=0,
+        trial_days=3,
         active=True,
     )
     db_session.add(starter_plan)
@@ -423,6 +426,7 @@ async def test_onboard_merchant_rolls_back_when_membership_creation_fails(db_ses
         base_staff_per_storefront=0,
         max_extra_storefronts=0,
         max_extra_staff=0,
+        trial_days=3,
         active=True,
     )
     db_session.add(starter_plan)

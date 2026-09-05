@@ -45,6 +45,19 @@ class TenantContextResolution:
         if tenant.status == TenantStatus.ARCHIVED:
             raise TenantAuthorizationError("Tenant is archived and no longer accessible")
 
+        if tenant.status == TenantStatus.SUSPENDED:
+            # Entitlement gate: a tenant is suspended when its owning
+            # merchant's subscription has expired without conversion (see
+            # app/workers/trial_expiration.py). This blocks merchant-side
+            # management access — product/inventory/order endpoints all
+            # resolve tenant context through here. Public storefront access
+            # is separately blocked because resolve_tenant_from_subdomain
+            # only matches status='active' tenants.
+            raise TenantAuthorizationError(
+                "This storefront is suspended because its subscription has "
+                "expired. Subscribe to a plan to restore access."
+            )
+
         membership_result = await self.db.execute(
             select(TenantMembership).where(
                 TenantMembership.user_id == user_id,

@@ -1,12 +1,21 @@
 #!/bin/sh
 set -eu
 
-echo "Starting CruxNexus Commerce API..."
-
 if [ -z "${DATABASE_URL:-}" ]; then
     echo "ERROR: DATABASE_URL is not configured"
     exit 1
 fi
+
+PROCESS_TYPE="${PROCESS_TYPE:-web}"
+
+if [ "$PROCESS_TYPE" = "worker" ]; then
+    echo "Starting CruxNexus Commerce API background worker..."
+    # Migrations are applied by the web process on deploy; the worker does
+    # not re-run them to avoid two processes racing on the migration lock.
+    exec python -m app.workers.runner
+fi
+
+echo "Starting CruxNexus Commerce API..."
 
 echo "Running database migrations..."
 

@@ -44,6 +44,11 @@ class SubscriptionPlan(Base):
         nullable=False,
     )
 
+    trial_days = Column(
+        Integer,
+        nullable=False,
+    )
+
     active = Column(
         Boolean,
         nullable=False,
@@ -65,7 +70,12 @@ class SubscriptionPlan(Base):
 
     # Invariants:
     # - code is unique (enforced by database)
-    # - STARTER: 1 storefront, 0 staff/base, 0 extra storefronts, 0 extra staff
-    # - BUSINESS: 1 storefront, 3 staff/base, 1 extra storefronts max, 2 extra staff max
-    # - ENTERPRISE: 1 storefront, 8 staff/base, 2 extra storefronts max, 4 extra staff max
+    # - Commerce tier capacity (storefronts/staff):
+    #   STARTER: 1 storefront, 0 staff/base, 0 extra storefronts, 0 extra staff
+    #   BUSINESS: 1 storefront, 3 staff/base, 1 extra storefronts max, 2 extra staff max
+    #   ENTERPRISE: 1 storefront, 8 staff/base, 2 extra storefronts max, 4 extra staff max
     # - INACTIVE plans cannot be used for new subscriptions
+    # - trial_days is a separate billing/trial policy, not part of commerce
+    #   tier capacity above — every plan still requires an explicit value.
+    #   OnboardingService must never hardcode a trial length; it always
+    #   reads SubscriptionPlan.trial_days.

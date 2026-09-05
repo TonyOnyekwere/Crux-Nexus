@@ -10,6 +10,7 @@ class DomainEvent(StrEnum):
     STOREFRONT_CREATED = "StorefrontCreated"
     STAFF_MEMBER_ADDED = "StaffMemberAdded"
     SUBSCRIPTION_CREATED = "SubscriptionCreated"
+    TRIAL_EXPIRED = "TrialExpired"
     ENTITLEMENT_ALLOCATED = "EntitlementAllocated"
     PAYMENT_SUCCESSFUL = "PaymentSuccessful"
 
